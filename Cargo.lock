@@ -89,6 +89,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
+ "http-body",
  "http-body-util",
  "jsonwebtoken",
  "rand 0.8.8",

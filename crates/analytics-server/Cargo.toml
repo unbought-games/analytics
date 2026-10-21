@@ -9,6 +9,7 @@ analytics-query = { path = "../analytics-query" }
 analytics-ingest = { path = "../analytics-ingest" }
 analytics-core.workspace = true
 axum.workspace = true
+http-body = "1.0.1"
 tokio.workspace = true
 serde_json.workspace = true
 async-trait.workspace = true
