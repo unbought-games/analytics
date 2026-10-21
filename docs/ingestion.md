@@ -14,8 +14,14 @@ Only their SHA-256 verifiers are stored; token responses disclose the value once
 These are public abuse-control credentials, never proof of a person or account.
 They cannot authenticate to server ingestion or analytical/admin routes.
 
-`GET /v1/ingest/config?property_id=<uuid>` (alias `/v1/ingest/policy`) uses the same
-public headers and returns `{property_id,policy,handoff_audiences,schemas,limitations}`.
+`GET` and `POST /v1/ingest/config?property_id=<uuid>` (alias `/v1/ingest/policy`)
+use the same public headers and return
+`{property_id,policy,handoff_audiences,schemas,limitations}`. Both methods are
+read-only; POST uses the query parameter and requires no request body. The POST
+form supports SDK initialization on same-origin deployments where GET may omit
+`Origin`. Missing, `null` or unallowlisted origins remain forbidden. The SDK must
+use browser request settings that send its actual permitted origin; the service
+never infers authority from a referrer or substitutes an origin.
 Only non-authoritative event schemas are exposed. Browser policy selection must
 not exceed that ceiling. The service checks current policy version, profile,
 collection choice, `Sec-GPC: 1` when configured, schema types, origin and identifiers
@@ -294,3 +300,19 @@ durable producers retain and retry them. Reported service RSS peaks were about
 250 ms, p99 1,000 ms, RSS, export and explicit-backpressure gates all passed.
 These are controlled local measurements, not production throughput guarantees;
 integration owns the raw report and final assembled functional acceptance rerun.
+
+
+Same-origin configuration compatibility regression:
+
+```sh
+INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:57994/postgres cargo test -p analytics-ingest --test postgres same_origin_config_post
+cargo clippy -p analytics-ingest --all-targets -- -D warnings
+cargo run -q -p analytics-ingest --example openapi > /tmp/analytics-ingest-config-openapi.json
+```
+
+The real PostgreSQL / loopback HTTP regression verifies GET and empty-body POST
+return identical safe configuration with the same query parameter, token and
+allowed Origin; missing query, missing/null/unapproved Origin and invalid tokens
+remain denied. Configuration and ingestion tables remain unchanged by these reads.
+The additive generator documents both POST aliases and required Origin headers.
+Actual Chromium SDK same-/cross-origin verification is owned by browser integration.

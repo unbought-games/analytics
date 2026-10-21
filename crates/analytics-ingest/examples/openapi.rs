@@ -93,6 +93,14 @@ fn main() {
         ("/v1/ingest/status", false),
     ] {
         paths[path] = json!({"get":{"security":[if public {json!({"PropertyToken":[]})}else{json!({"bearerAuth":[]})}],"parameters":[{"name":"property_id","in":"query","required":true,"schema":{"type":"string","format":"uuid"}}],"responses":{"200":{"description":"Safe scoped configuration/status","content":{"application/json":{"schema":{"type":"object"}}}}}}});
+        if public {
+            paths[path]["get"]["parameters"].as_array_mut().unwrap().push(json!({"name":"Origin","in":"header","required":true,"schema":{"type":"string","format":"uri"}}));
+            let mut read_operation = paths[path]["get"].clone();
+            read_operation["description"] = json!(
+                "Read-only configuration lookup. Uses the property_id query parameter and X-Property-Token/Origin headers; no request body and no collection writes."
+            );
+            paths[path]["post"] = read_operation;
+        }
     }
     println!("{}",serde_json::to_string_pretty(&json!({"paths":paths,"components":{"schemas":components,"securitySchemes":{"PropertyToken":{"type":"apiKey","in":"header","name":"X-Property-Token"}}}})).unwrap());
 }
