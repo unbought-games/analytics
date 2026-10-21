@@ -72,7 +72,7 @@ def main():
             event={"event_id":str(uuid.uuid4()),"property_id":property_id,"name":"load","schema_version":1,"producer":"server","category":"system","occurred_at":datetime.now(timezone.utc).isoformat(),"clock":"server","logical_time":None,"visit_id":None,"visitor_id":None,"subject":None,"context":{"environment":"benchmark","release":"synthetic-v1","page":None,"referrer":None,"control":None,"correlation_id":None},"campaign":None,"touch_id":None,"attribution_rule":None,"collection":{"profile":"minimal","policy_version":1,"consent":True,"sample_rate":1,"dropped_events":0},"properties":{}}
             batch=service.directory/(name+"-batch.json")
             batch.write_text(json.dumps({"events":[event]*batchsize}))
-            args=[sys.executable,"benchmarks/http.py","--url",service.url+"/v1/ingest/server","--batch",str(batch),"--credential-file",str(credential),"--requests",str(requests),"--concurrency",str(concurrency),"--output",str(output/(name+".json"))]
+            args=[sys.executable,"benchmarks/ingestion.py","--url",service.url+"/v1/ingest/server","--batch",str(batch),"--credential-file",str(credential),"--requests",str(requests),"--concurrency",str(concurrency),"--output",str(output/(name+".json"))]
             if name=="burst":args.append("--allow-backpressure")
             with Samples(service.process.pid) as samples:
                 subprocess.run(args,cwd=ROOT,check=True)

@@ -5,7 +5,7 @@
 The HTTP driver reads a synthetic `IngestBatch` JSON template and a mode-0600 credential file. It generates fresh event IDs for insert measurements, counts accepted acknowledgments separately from HTTP success, records all response counts, and exits nonzero on incomplete acceptance. It never writes credentials into results. Run against an isolated stack only:
 
 ```sh
-python3 benchmarks/http.py --url http://127.0.0.1:8080/v1/ingest/server \
+python3 benchmarks/ingestion.py --url http://127.0.0.1:8080/v1/ingest/server \
   --batch local/synthetic-batch.json --credential-file local/server-credential \
   --requests 1000 --concurrency 4 --output artifacts/benchmarks/normal.json
 ```
