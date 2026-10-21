@@ -8,7 +8,7 @@ High-level requirements, technical direction, and implementation handoff
 
 ## 1. What we are building
 
-Build an open-source analytics engine that helps Unbought understand traffic, people, campaigns, and player outcomes across configured web properties. Anyone can deploy, instrument, and query it using their own agent.
+Build an open-source analytics engine that helps operators understand traffic, people, campaigns, and player outcomes across configured web properties. Anyone can deploy, instrument, and query it using their own agent.
 
 The primary interface is for agents. An analytical agent retrieves evidence, computes metrics, merges datasets, investigates interesting changes, and explains findings to the operator. We need accessible data and repeatable analysis before dashboards.
 
@@ -27,7 +27,7 @@ Traffic and registrations are useful intermediate signals. Meaningful play and r
 - Rust server; TypeScript/JavaScript browser component published through npm.
 - PostgreSQL is the selected application database. Operators may use an existing PostgreSQL deployment with workload isolation.
 - Headless first release, including administration; no built-in human web console.
-- Open source from the start, independently deployable without Unbought services.
+- Open source from the start, independently deployable without operator-specific services.
 - Fast and lightweight; performance is a first-class acceptance criterion.
 - Shared web analytics inside and outside games, across configured properties.
 - Broad interaction history by default, within the configured collection policy.
@@ -233,8 +233,8 @@ Support identifiable human access, delegated agent access on behalf of a human
 where appropriate, and independently identifiable service/agent accounts for
 unattended operation. Use a standards-based human sign-in integration (OIDC is
 the preferred proposal, with operator-selected issuer) and documented scoped,
-revocable credentials for automation. Do not require Unbought the identity application for other
-installations. Provide a secure headless initial-owner/bootstrap and recovery
+revocable credentials for automation. Do not require a particular identity provider.
+Provide a secure headless initial-owner/bootstrap and recovery
 path without default public credentials or a permanently open setup endpoint.
 Exact authentication components are implementation choices; both human and
 non-interactive agent workflows must be demonstrable.
@@ -405,7 +405,7 @@ Use a documented fixture dataset and hardware/configuration. Measure normal brow
 
 Provide health/readiness, migrations, backup/restore documentation, structured diagnostic logs and minimal service metrics for operating this service. Expose ingestion backlog/loss and export failures. These are the engine's own operational signals, not an observability product; external systems own their collection and alerting.
 
-Provide a reproducible local deployment and containerized self-hosting path. No mandatory connection to Unbought, generator vendors, proprietary model APIs or a billing account. Credentials stay outside source control. Public documentation uses synthetic data.
+Provide a reproducible local deployment and containerized self-hosting path. No mandatory connection to company-specific services, generator vendors, proprietary model APIs or a billing account. Credentials stay outside source control. Public documentation uses synthetic data.
 
 ## 13. SDK generation and integration scope
 
@@ -444,7 +444,7 @@ The system makes this loop easier; it does not autonomously authorize campaigns,
 
 | ID | What must be demonstrated |
 | --- | --- |
-| A01 Independent setup | A clean install with synthetic properties/data, no Unbought credentials, browser instrumentation, backend event and working MCP client. |
+| A01 Independent setup | A clean install with synthetic properties/data, no company-specific credentials, browser instrumentation, backend event and working MCP client. |
 | A02 Capture | Initial/SPA navigation and meaningful interactions automatically appear once; URLs/properties are sanitized; repeated SDK initialization is safe. |
 | A03 Campaign continuity | A tagged company landing → game → the identity application signup → enrollment → first action journey produces traceable acquisition. Include cancellation, retry, expired/invalid context, untagged navigation, later campaigns and existing-account login. |
 | A04 Identity | Correct mapping despite different the identity application/the game application UUIDs; multiple worlds, logout/shared device, unmapped and deleted subjects do not create false joins. |
