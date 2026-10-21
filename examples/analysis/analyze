@@ -16,6 +16,7 @@ def readable(report):
         lines += [f"Campaign: {json.dumps(campaign['campaign'], ensure_ascii=True)}",
                   f"Observed visits: {campaign['observed_visits']}; browser identities: {campaign['observed_browser_identities']}",
                   f"Acquired accounts: {campaign['acquired_accounts']}; revisiting accounts: {campaign['revisiting_accounts']}",
+                  f"Observed converted visits (including immature): {campaign['observed_converted_visits']}",
                   f"Enrolled accounts: {campaign['enrolled_accounts']}; world memberships: {campaign['world_memberships']}",
                   f"First-observed play: {campaign['first_observed_play_accounts']}; verified first-ever: {campaign['verified_first_ever_play_accounts']}"]
         for label, metric in [("Signup (30 days)", campaign["signup_conversion"]),

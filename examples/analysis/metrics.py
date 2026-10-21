@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
-VERSION = "campaign-cohort/1"
+VERSION = "campaign-cohort/2"
 WINDOWS = {"D1": (24, 48), "D7": (168, 192), "D30": (720, 744), "D180": (4320, 4344)}
 ACTIONS = {"construct", "navigate"}
 
@@ -67,10 +67,16 @@ def rate(cohort, numerator, denominator, exclusions):
             "exclusions": dict(sorted(exclusions.items()))}
 
 
+def attributed_visit(row):
+    if row.get("attributed_visit_verified") is True:
+        return (row["attributed_visit_property"], row["attributed_visit_id"])
+    return (row["property"], row["visit_id"])
+
+
 def calculate(data, metadata, cutoff):
     """All time ranges are half-open; cutoff is an exclusive evidence boundary."""
     cutoff = utc(cutoff)
-    acquisition = unique(data["acquisition"], lambda r: r["event_id"])
+    acquisition = unique(data["acquisition"], lambda r: (r["property"], r["event_id"]))
     maps = unique(data["identity_map"], lambda r: (subject(r), r["application"]))
     members = unique(data["memberships"], player)
     events = unique(data["activity"], lambda r: (r["application"], r["event_id"]))
@@ -135,10 +141,14 @@ def calculate(data, metadata, cutoff):
         returning = {subject(r) for r in observations if r["kind"] == "revisit"
                      and r["authoritative"] is True}
         signup_exclusions = Counter()
-        signup_n = signup_d = 0
+        signup_n = signup_d = observed_converted_visits = 0
         for visit in visits:
             start = utc(visit["occurred_at"])
             end = start + timedelta(days=30)
+            converted = visit["linkage_permitted"] and any(
+                attributed_visit(r) == (visit["property"], visit["visit_id"])
+                and start <= utc(r["occurred_at"]) < end for r in signups.values())
+            observed_converted_visits += bool(converted)
             if cutoff < end:
                 signup_exclusions["immature"] += 1
             elif not visit["linkage_permitted"]:
@@ -148,9 +158,7 @@ def calculate(data, metadata, cutoff):
                 signup_exclusions["history_unavailable"] += 1
             else:
                 signup_d += 1
-                signup_n += any(r["property"] == visit["property"]
-                                and r["visit_id"] == visit["visit_id"]
-                                and start <= utc(r["occurred_at"]) < end for r in cohort)
+                signup_n += bool(converted)
         activation_exclusions = Counter()
         activation_n = activation_d = 0
         states = []
@@ -200,6 +208,7 @@ def calculate(data, metadata, cutoff):
                                "elapsed_hours": [lo, hi]}
         reports.append({"campaign": campaign, "observed_visits": len(visits),
                         "observed_browser_identities": len(visitors),
+                        "observed_converted_visits": observed_converted_visits,
                         "visits_without_browser_identity": sum(r["visitor_id"] is None for r in visits),
                         "acquired_accounts": len(cohort), "revisiting_accounts": len(returning),
                         "enrolled_accounts": enrolled,
