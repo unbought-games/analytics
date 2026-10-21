@@ -33,6 +33,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "analytics-ingest"
+version = "0.1.0"
+dependencies = [
+ "analytics-core",
+ "async-trait",
+ "axum",
+ "chrono",
+ "http-body-util",
+ "reqwest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tower",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "analytics-server"
 version = "0.1.0"
 dependencies = [
