@@ -146,7 +146,8 @@ async fn run() -> ApiResult<()> {
                         "ANALYTICS_MAX_IN_FLIGHT_REQUESTS must be an integer in 1..4096",
                     )
                 })?;
-            let app = analytics_server::router_with_admission(state, extensions, oidc, max_in_flight)?;
+            let app =
+                analytics_server::router_with_admission(state, extensions, oidc, max_in_flight)?;
             let listener = tokio::net::TcpListener::bind(bind)
                 .await
                 .map_err(|_| ApiError::internal())?;

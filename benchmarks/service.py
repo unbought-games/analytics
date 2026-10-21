@@ -99,8 +99,20 @@ def main():
         after=impact()
         reports["export"]={"rows":manifest["datasets"][0]["row_count"],"bytes":manifest["datasets"][0]["bytes"],"sha256":manifest["datasets"][0]["sha256"],"create_to_verified_download_seconds":elapsed,"service_rss":samples.result(),"source_db_cumulative_delta":{key:after[key]-before[key] for key in before},"source_snapshot_semantics":manifest["provenance"],"query_budget":BUDGET}
         reports["configuration"]={"recorded_at":datetime.now(timezone.utc).isoformat(),"revision":subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),"dirty":bool(subprocess.check_output(["git","status","--porcelain"],cwd=ROOT)),"service_build":"native cargo --release; default optimization; no service CPU cap; global HTTP admission16","database":"postgres17.7 containers;1CPU/512MiB each","rss_method":"ps RSS bytes sampled every50ms; may miss shorter peaks","source_impact":"pg_stat_database counters include fixture polling; cumulative stats may lag","outage":"separate actual browser transactional signup/outbox test; not inferred from throughput"}
+    limits=json.loads((ROOT/"benchmarks/budgets.json").read_text())["proposed_limits"]
+    reports["budget_evaluation"]={
+        "normal_p95":reports["normal"]["accepted_request_latency_ms"]["p95"]<=limits["normal_ingest_p95_ms"],
+        "normal_p99":reports["normal"]["accepted_request_latency_ms"]["p99"]<=limits["normal_ingest_p99_ms"],
+        "rss":max(reports[name]["service_rss"]["peak_bytes"] for name in ("normal","burst","export"))<=limits["engine_peak_rss_mib"]*1024*1024,
+        "stream_incremental_rss":reports["export"]["service_rss"]["peak_bytes"]-reports["export"]["service_rss"]["baseline_bytes"]<=limits["export_additional_peak_rss_mib"]*1024*1024,
+        "export_rows":reports["export"]["rows"]==100000,
+        "burst_backpressure_observed":reports["burst"]["http_refused_events"]>0 or reports["burst"]["event_outcomes"].get("rejected:rate_limited",0)>0
+    }
+    reports["passed"]=all(reports["budget_evaluation"].values())
     (output/"service.json").write_text(json.dumps(reports,indent=2)+"\n")
     print("Recorded service benchmark:",output/"service.json")
+    if not reports["passed"]:
+        raise SystemExit("Measured workload exceeded proposed budgets; inspect recorded evaluation")
 
 
 if __name__=="__main__":main()

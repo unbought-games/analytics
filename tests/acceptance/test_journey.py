@@ -54,6 +54,7 @@ class JourneyTests(unittest.TestCase):
                         first_batch=result["firstBatch"]
                         self.assertEqual(journey.sql("SELECT count(*) FROM live.accounts;"),"0")
                         self.assertEqual(journey.sql("SELECT count(*) FROM analytics_outbox;"),"0")
+                        self.assertEqual(journey.sql("SELECT count(*) FROM synthetic_commands;"),"0")
                         # Identical UUID in another property is a distinct public event.
                         collision=json.loads(json.dumps(first_batch["events"][0]))
                         collision.update(property_id=journey.sites["game"]["property"],visit_id=str(uuid.uuid4()),visitor_id=str(uuid.uuid4()))
@@ -70,7 +71,7 @@ class JourneyTests(unittest.TestCase):
                         time.sleep(2.1)
                         pending=journey.dispatch()
                         if pending != "0":
-                            diagnostics=journey.sql("SELECT last_error_code,quarantined,attempts FROM analytics_outbox;")
+                            diagnostics=journey.sql("SELECT last_error_code,attempts FROM analytics_outbox;")
                             acknowledgment=service.client.tool("ingest_server",{"events":[journey.events["signup"]]})
                             self.fail("Outbox recovery: "+diagnostics+" acknowledgment="+json.dumps(acknowledgment))
                         journey.link("signup")
@@ -99,7 +100,7 @@ class JourneyTests(unittest.TestCase):
                 error_log.close()
             self.assertNotEqual(journey.subject,journey.account)
             self.assertNotEqual(journey.account,journey.player)
-            self.assertEqual(journey.sql("SELECT count(*) FROM analytics_outbox WHERE delivered_at IS NOT NULL;"),"4")
+            self.assertEqual(journey.sql("SELECT count(*) FROM synthetic_commands WHERE analytics_delivered_at IS NOT NULL;"),"4")
             source_id=str(uuid.uuid4())
             secret=service.secrets/"live-source"
             secret.write_text(os.environ["TEST_SOURCE_DATABASE_URL"])

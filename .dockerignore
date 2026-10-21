@@ -9,6 +9,7 @@
 !examples/
 !examples/producers/
 !examples/producers/outbox.rs
+!examples/producers/*.sql
 # Defense in depth for ignored/private files inside allowed directories.
 **/.git
 **/.env*
