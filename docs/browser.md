@@ -26,11 +26,12 @@ name an explicitly disposable test database; the Rust harness creates an isolate
 schema. Never point this command at a production database. Linux CI can install
 Chromium with `npx playwright install --with-deps chromium`.
 
-Use the built workspace package locally; publishing and public package-name
-availability are release steps. No npm publication has been performed.
+Use the built workspace package locally. `@unbought/analytics` is the candidate
+package name from the specification; registry availability and publishing access
+remain release-time checks. No npm publication has been performed.
 
 ```ts
-import {init, browserSchemas} from '@independent-analytics/browser';
+import {init, browserSchemas} from '@unbought/analytics';
 
 const analytics = init({
   endpoint: 'https://analytics.example',
@@ -296,7 +297,7 @@ No sampling is applied (`sample_rate: 1`).
 ## Contract and release checks
 
 `src/wire.ts` is locally generated from `contracts/openapi.json`; `npm run check`
-fails on drift. Run `npm run generate:wire --workspace @independent-analytics/browser`
+fails on drift. Run `npm run generate:wire --workspace ./packages/browser`
 after a coordinated contract change. The generator emits only selected DTO types,
 adds no runtime dependency, retains UUID/time strings, and never coerces decimal
 receipt cursors into JavaScript numbers. Timestamp/logical-time/server producer
@@ -305,7 +306,7 @@ routes follow `docs/ingestion.md`.
 
 Package `files` explicitly includes only `dist`, `README.md` and `LICENSE` (npm also
 includes package metadata). Run `npm pack --dry-run --json --ignore-scripts
---workspace @independent-analytics/browser` to inspect the publish boundary. The
+--workspace ./packages/browser` to inspect the publish boundary. The
 package name is a proposed generic name; verify registry availability/access and
 build the distribution at release time. No publication, deployment or production
 collection occurred in these checks.
@@ -353,7 +354,7 @@ Final commands and outcomes:
 | `npm run test:browser` | 27 Chromium tests passed |
 | `npm run test:browser:service` | Real PostgreSQL/Rust/Chromium contract regression passed; 4 stored events, replay dedupe, forgery rejection and reset verified |
 | `npm run benchmark:browser` | All recorded engineering budgets passed |
-| `npm pack --dry-run --json --ignore-scripts --workspace @independent-analytics/browser` | 16 files; only metadata, license, README and built distribution |
+| `npm pack --dry-run --json --ignore-scripts --workspace ./packages/browser` | 16 files; only metadata, license, README and built distribution |
 | `git diff --check` | No whitespace errors |
 
 Final benchmark: ESM 26,085 minified bytes / 8,856 gzip bytes; global script 26,575 /
@@ -370,7 +371,7 @@ and browser-engine limits above apply; these are not production measurements.
 The evidence-only followup runs with:
 
 ```sh
-npm run benchmark:heap --workspace @independent-analytics/browser
+npm run benchmark:heap --workspace ./packages/browser
 ```
 
 `packages/browser/benchmarks/heap.json` stores every sample and all 20 runs: five
@@ -413,3 +414,17 @@ behavior create noise. Subtracting the control or dividing by retained events do
 not establish an exact queue-memory or per-event guarantee. This focused heap run
 is separate from the uninterrupted burst timing in `latest.json` and should not be
 used as its throughput measurement.
+
+### Candidate package metadata verification
+
+The package metadata and lockfile use `@unbought/analytics`, the specification's
+candidate name. Root workspace scripts and documented workspace commands select
+`./packages/browser` so future naming changes do not affect those commands.
+`npm install --package-lock-only --ignore-scripts`, `npm ci --ignore-scripts`,
+`npm run check`, `npm run build`, and
+`npm pack --dry-run --json --ignore-scripts --workspace ./packages/browser` all
+passed after the rename. ESM and CommonJS resolution of `@unbought/analytics` were
+also checked. The dry run contains the same 16 allowlisted distribution files.
+This metadata-only change does not change runtime code; behavior tests were not
+rerun. Registry availability and publishing access were not claimed or tested,
+and no package was published.

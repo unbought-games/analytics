@@ -1,5 +1,5 @@
 {
-  "name": "@independent-analytics/browser",
+  "name": "@unbought/analytics",
   "version": "0.1.0",
   "description": "Bounded, framework-neutral browser observations for a self-hosted analytics engine",
   "type": "module",
