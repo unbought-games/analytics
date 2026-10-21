@@ -4,13 +4,16 @@ import os
 from pathlib import Path
 import unittest
 from client import Client
-from stack import load_state, start_engine
+from stack import load_state, start_engine, compose, endpoint
 
 
 class ContainerTests(unittest.TestCase):
     def test_real_container_migration_runtime_bootstrap_and_mcp(self):
         state = load_state(os.environ["ANALYTICS_STACK_STATE"])
-        start_engine(state)
+        prior_id=compose(state,"ps","-q","fixtures",capture_output=True,text=True).stdout.strip()
+        start_engine(state,recreate_dependencies=True)
+        self.assertNotEqual(compose(state,"ps","-q","fixtures",capture_output=True,text=True).stdout.strip(),prior_id)
+        self.assertEqual(state["public_base_url"],"http://"+endpoint(state,"fixtures",8080))
         handoff = Path(state["directory"]) / "secrets/bootstrap.json"
         self.assertEqual(handoff.stat().st_mode & 0o777, 0o600)
         credentials = json.loads(handoff.read_text())
