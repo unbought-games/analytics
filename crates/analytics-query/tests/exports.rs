@@ -82,6 +82,16 @@ async fn durable_remote_export_reconnect_scope_partial_failure_cancel_expiry_rev
         .execute(&db)
         .await
         .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/0005_resource_generations.sql"
+    ))
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!("../../../migrations/0006_export_cleanup.sql"))
+        .execute(&db)
+        .await
+        .unwrap();
     let role = format!("reader_{}", Uuid::new_v4().simple());
     sqlx::raw_sql(
         &include_str!("../../../tests/fixtures/sources/postgres.sql")
@@ -499,6 +509,87 @@ async fn durable_remote_export_reconnect_scope_partial_failure_cancel_expiry_rev
         403
     );
     worker.abort();
+    // Deleting/recreating a UUID must never revive an old generation.
+    let queued_old = create(request.clone()).await;
+    let previous: i64 =
+        sqlx::query_scalar("SELECT revision FROM admin_objects WHERE kind='sources' AND id=$1")
+            .bind(source.to_string())
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    sqlx::query("DELETE FROM admin_objects WHERE kind='sources' AND id=$1")
+        .bind(source.to_string())
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO admin_objects(kind,id,scope_kind,scope_id,value,revision) VALUES('sources',$1,'source',$1,$2,1)").bind(source.to_string()).bind(serde_json::to_value(&definition).unwrap()).execute(&db).await.unwrap();
+    let current: i64 =
+        sqlx::query_scalar("SELECT revision FROM admin_objects WHERE kind='sources' AND id=$1")
+            .bind(source.to_string())
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert!(current > previous);
+    assert_eq!(
+        client
+            .get(format!("{base}/v1/exports/{}/manifest", created.id))
+            .bearer_auth("fixture-query-token")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    // More than a page of old terminal rows must not starve later cleanup.
+    sqlx::query("INSERT INTO export_jobs(id,owner_principal_id,actor,source_id,request,status,created_at,expires_at,configuration_revision) SELECT gen_random_uuid(),$1,$2,$3,$4,'expired',now()-interval '2 days',now()-interval '1 day',$5 FROM generate_series(1,1001)").bind(principal).bind(serde_json::to_value(&auth.actor).unwrap()).bind(source).bind(serde_json::to_value(&request).unwrap()).bind(current).execute(&db).await.unwrap();
+    let stale = Uuid::new_v4();
+    sqlx::query("INSERT INTO export_jobs(id,owner_principal_id,actor,source_id,request,status,expires_at,configuration_revision) VALUES($1,$2,$3,$4,$5,'expired',now(),$6)").bind(stale).bind(principal).bind(serde_json::to_value(&auth.actor).unwrap()).bind(source).bind(serde_json::to_value(&request).unwrap()).bind(current).execute(&db).await.unwrap();
+    let stale_dir = state.config.export_directory.join(stale.to_string());
+    tokio::fs::create_dir_all(&stale_dir).await.unwrap();
+    tokio::fs::write(stale_dir.join("data.partial"), b"synthetic")
+        .await
+        .unwrap();
+    let generation_worker = start_worker(state.clone());
+    for _ in 0..200 {
+        let status: String = sqlx::query_scalar("SELECT status FROM export_jobs WHERE id=$1")
+            .bind(queued_old.id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        if status == "failed" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let old_status: String = sqlx::query_scalar("SELECT status FROM export_jobs WHERE id=$1")
+        .bind(queued_old.id)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(old_status, "failed");
+    let fresh = create(request.clone()).await;
+    assert_eq!(
+        until_done(&client, &base, fresh.id).await.status,
+        "complete"
+    );
+    for _ in 0..100 {
+        if !stale_dir.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        !stale_dir.exists(),
+        "cleanup starved behind older terminal rows"
+    );
+    let cleaned: bool =
+        sqlx::query_scalar("SELECT cleaned_at IS NOT NULL FROM export_jobs WHERE id=$1")
+            .bind(stale)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert!(cleaned);
+    generation_worker.abort();
     server.abort();
     db.close().await;
     sqlx::query(&format!("DROP DATABASE {dbname} WITH (FORCE)"))
