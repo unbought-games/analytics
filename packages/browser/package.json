@@ -1,0 +1,37 @@
+{
+  "name": "@independent-analytics/browser",
+  "version": "0.1.0",
+  "description": "Bounded, framework-neutral browser observations for a self-hosted analytics engine",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./static": "./dist/analytics.global.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "node scripts/build.mjs && tsc --emitDeclarationOnly",
+    "check": "node scripts/generate-wire.mjs --check && tsc --noEmit",
+    "test": "npm run build && playwright test",
+    "benchmark": "npm run build && node scripts/benchmark.mjs",
+    "generate:wire": "node scripts/generate-wire.mjs",
+    "test:service": "npm run build && node scripts/service-smoke.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

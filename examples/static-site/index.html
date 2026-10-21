@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Example community</title>
+  <!-- Synthetic local configuration: replace with your own public property token. Never use an admin credential. -->
+  <meta name="analytics-endpoint" content="http://127.0.0.1:8080">
+  <meta name="analytics-property" content="11111111-1111-4111-8111-111111111111">
+  <meta name="analytics-public-token" content="replace-with-issued-public-property-token">
+  <script defer src="../../packages/browser/dist/analytics.global.js"></script>
+  <script defer src="site.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Explore the example community</h1>
+    <p>A synthetic static site demonstrating navigation, forms and collection choices.</p>
+    <nav><a href="?utm_campaign=community-launch&utm_source=guide" data-analytics="campaign_landing">Campaign landing</a> <button data-analytics="guide" id="guide">Read the guide</button></nav>
+    <details><summary data-analytics="learn_more">Learn more</summary><p>Explore, contribute, and return to the community.</p></details>
+    <form data-analytics="interest_form"><label>Contact email <input type="email" required></label><button data-analytics="interest_submit">Express interest</button></form>
+    <p>Form contents stay on this page. This example makes no account or signup claim.</p>
+    <fieldset data-analytics-ignore><legend>Optional collection</legend>
+      <button id="minimal">Enable minimal observations</button>
+      <button id="journey">Enable this visit's journey</button>
+      <button id="off">Turn collection off</button>
+    </fieldset>
+    <p id="status" role="status">Collection is off.</p>
+  </main>
+</body>
+</html>
