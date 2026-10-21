@@ -43,3 +43,11 @@ The optimized export is 16,988,895 bytes with a verified SHA-256. A separate aut
 The burst intentionally exceeds admission capacity. HTTP 503 responses are explicit backpressure, not acknowledged delivery; authoritative producers must retain/retry their journal facts. Successful-request percentiles are reported separately from fast refusals. Sampled RSS is a whole-process observation with 50 ms target sampling, not proof of a portable absolute peak. Browser bundle/interaction/heap evidence is recorded separately in `packages/browser/benchmarks/`.
 
 The initial optimized run used the task-resolved lockfile. A final unchanged workload is rerun with the public integration branch's authoritative lockfile; both dependency graph hashes are recorded rather than treating them as interchangeable.
+
+## Transport uncertainty and recovery accounting
+
+An early HTTP/1 overload response can be lost while the sender is still transmitting its body. `2026-10-21-root-lock-transport-failure.json` preserves the observed strict-accounting failure: 134 acknowledged requests, 565 explicit 503 responses, and one request with no received HTTP status. That request is not relabeled as refused or accepted.
+
+The driver now records exception classes and retains synthetic unacknowledged batches in mode-0600 ignored files. Request accounting partitions every event into acknowledged outcomes, explicit HTTP refusals, or transport-unknown. After timed load ends, the service benchmark checks the unknown stable IDs in PostgreSQL, retries only those exact batches with bounded backoff, and requires accepted/duplicate results plus exact final ID reconciliation. Recovery counts and time never enter the original latency or throughput samples. Unresolved batches, conflicts, missing acknowledged rows, or unexpected normal-load refusals still fail the run. Latency and memory thresholds are unchanged.
+
+A separate deterministic probe closes a real HTTP socket after sending two events without reading an acknowledgment. It verifies database reconciliation, stable-ID retry and subsequent duplicate-only replay, even when a particular burst happens to receive every response. No body draining or admission/deadline protection is disabled to force a response-delivery guarantee.
