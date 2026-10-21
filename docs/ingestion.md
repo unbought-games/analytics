@@ -234,3 +234,37 @@ concurrent with the TypeScript run). TypeScript recovered all 10,025 facts in
 bytes and maximum request batch 50. Clippy, formatting and strict TypeScript
 checks passed. Full commands, contract revision and fixture limitations are in
 `examples/producers/README.md`.
+
+### Transaction-local batch optimization
+
+Ordinary events now share bounded preflight reads for suppression/receipts and one
+quota reservation per property. Property and schema values are cached only inside
+the current transaction while their `FOR SHARE` locks remain held. There is no
+cross-request policy, credential, grant or identity cache. Unique-scope server
+authorization completes before acquiring the ingestion transaction, including when
+authorization uses the same one-connection database pool.
+
+Ordinary event/receipt inserts use one ordered PostgreSQL CTE per contiguous group;
+touch/signup operations flush preceding groups and keep their ordered savepoints.
+An in-memory map preserves same-batch duplicates/conflicts, and returned cursors
+are populated from actual inserts before transaction commit. Counters are aggregated
+within the transaction and written once. SQL failures roll back events, receipts,
+quota and counters together and never produce a successful ACK. Database values
+and per-event validation/privacy checks remain unchanged.
+
+Validation on disposable PostgreSQL with one CPU / 512 MiB:
+
+```sh
+INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:64769/postgres cargo test -p analytics-ingest --all-targets
+INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:64769/postgres cargo test -p analytics-ingest --test postgres -- --skip journal_projects_bounded_queue_and_recovers_more_than_capacity
+cargo clippy -p analytics-ingest --all-targets -- -D warnings
+```
+
+The existing 11 PostgreSQL suites (including 10,025-fact recovery) and two unit
+tests passed; the targeted run then passed 14 PostgreSQL suites, adding mixed
+ordinary/touch/signup ordering, intra-batch duplicate/conflict cursors, exact partial
+quota consumption, full rollback on a forced bulk SQL failure, and authorization
+through a shared one-connection pool. The single skipped long recovery suite had
+already passed the full run. Clippy passed. Full-service A11 budgets must be judged
+by rerunning the unchanged integration benchmark; this module check alone does not
+establish a latency budget result.
