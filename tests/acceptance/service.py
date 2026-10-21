@@ -10,13 +10,13 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from client import Client
 from fixtures.server import FixtureServer
-from stack import ROOT, load_state
+from stack import ROOT, load_state, grant_runtime
 
 
 class Service:
-    def __init__(self):
+    def __init__(self, name="service", address=None):
         self.state = load_state(os.environ["ANALYTICS_STACK_STATE"])
-        self.directory = Path(self.state["directory"]) / "service"
+        self.directory = Path(self.state["directory"]) / name
         self.directory.mkdir(mode=0o700)
         self.secrets = self.directory / "secrets"
         self.secrets.mkdir(mode=0o700)
@@ -28,6 +28,7 @@ class Service:
         with socket.socket() as port:
             port.bind(("127.0.0.1", 0))
             self.address = "127.0.0.1:" + str(port.getsockname()[1])
+        self.address = address or self.address
         self.url = "http://" + self.address
         self.oidc = FixtureServer(("127.0.0.1", 0))
         self.oidc_thread = threading.Thread(target=self.oidc.serve_forever, daemon=True)
@@ -44,6 +45,8 @@ class Service:
 
     def migrate_bootstrap(self):
         self.command("migrate")
+        grant_runtime(self.state)
+        self.env["ANALYTICS_DATABASE_URL_FILE"] = self.env["ANALYTICS_RUNTIME_DATABASE_URL_FILE"]
         handoff = self.directory / "bootstrap.json"
         self.command("bootstrap", "--owner", "synthetic-owner", "--agent", "synthetic-agent", "--output", str(handoff), "--expires-days", "30")
         self.handoff = json.loads(handoff.read_text())
@@ -65,7 +68,7 @@ class Service:
                 time.sleep(.1)
         raise RuntimeError("service did not become ready within 30 seconds")
 
-    def close(self):
+    def stop(self):
         if self.process and self.process.poll() is None:
             self.process.terminate()
             try:
@@ -73,6 +76,8 @@ class Service:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=5)
+    def close(self):
+        self.stop()
         self.log_handle.close()
         self.oidc.shutdown()
         self.oidc_thread.join(timeout=5)

@@ -25,7 +25,7 @@ class BuildContextTests(unittest.TestCase):
             return {str(path.relative_to(output / "context")) for path in (output / "context").rglob("*") if path.is_file()}
 
     def test_root_context_excludes_private_and_non_build_files(self):
-        allowed = {"Cargo.toml", "Cargo.lock", "crates/example/src/lib.rs", "migrations/0001_example.sql"}
+        allowed = {"Cargo.toml", "Cargo.lock", "crates/example/src/lib.rs", "migrations/0001_example.sql", "examples/producers/outbox.rs"}
         denied = {"UNBOUGHT_ANALYTICS_ENGINE.md", ".env", "local/password", "secrets/bootstrap.json", "artifacts/export.jsonl", "README.md", "crates/example/.env.local", "crates/example/signing.key", "crates/example/secrets/token", "crates/example/target/generated", "crates/example/__pycache__/cache.pyc"}
         self.assertEqual(self.exported_context(ROOT / ".dockerignore", allowed | denied), allowed)
 

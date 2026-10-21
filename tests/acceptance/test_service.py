@@ -1,4 +1,7 @@
 """Real Rust process, CLI, MCP and external PostgreSQL; no mocked service state."""
+from datetime import datetime, timedelta, timezone
+import shutil
+import subprocess
 import hashlib
 import json
 from pathlib import Path
@@ -12,6 +15,7 @@ from client import Client
 from export_cohorts import analyze, configure, download_bundle
 from fixtures.server import b64
 from service import Service
+from stack import compose
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -105,6 +109,64 @@ class ServiceTests(unittest.TestCase):
         self.assertIsNone(campaign["activation"]["rate"])
         self.assertIsNone(campaign["retention"]["D180"]["rate"])
         self.assertIsNone(campaign["signup_conversion"]["rate"])
+
+    def test_04_runtime_role_cannot_administer_database(self):
+        def sql(statement):
+            return compose(self.service.state, "exec", "-T", "postgres", "psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-U", "analytics_runtime", "-d", "analytics", input=statement, text=True, capture_output=True).stdout.strip()
+        self.assertEqual(sql("SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=current_user;"), "f")
+        self.assertEqual(sql("SELECT current_user;"), "analytics_runtime")
+        for statement in ["CREATE SCHEMA forbidden;", "CREATE ROLE forbidden;", "CREATE DATABASE forbidden;", "ALTER TABLE principals ADD COLUMN forbidden text;"]:
+            with self.assertRaises(subprocess.CalledProcessError):
+                sql(statement)
+        self.assertTrue(self.service.client.tool("status")["ready"])
+
+    def test_99_restore_engine_database_exports_revocations_and_new_queries(self):
+        service = self.service
+        source = configure(service, known_coverage=True)
+        bundle = download_bundle(service, source, service.directory / "before-restore")
+        saved_manifest = json.loads((bundle.parent / "acquisition/manifest.json").read_text())
+        credential = service.client.tool("admin_execute", {"operation": "issue", "resource_kind": "credentials", "resource_id": None, "value": {"principal_id": service.handoff["agent_id"], "name": "revoked-before-restore", "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), "grants": [{"action": "*", "resource": {"kind": "installation", "id": "default"}}]}})
+        service.client.tool("admin_execute", {"operation": "revoke", "resource_kind": "credentials", "resource_id": credential["id"], "value": None})
+        service.stop()  # Quiesce application writes before database + filesystem backup.
+        dump = compose(service.state, "exec", "-T", "postgres", "pg_dump", "-U", "analytics_migration", "-d", "analytics", "-Fc", capture_output=True).stdout
+        def sql(statement, database="postgres"):
+            return compose(service.state, "exec", "-T", "postgres", "psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-U", "analytics_migration", "-d", database, input=statement, text=True, capture_output=True).stdout.strip()
+        sql("CREATE DATABASE engine_restore;")
+        try:
+            compose(service.state, "exec", "-T", "postgres", "pg_restore", "-U", "analytics_migration", "-d", "engine_restore", "--exit-on-error", input=dump, capture_output=True)
+            for table in ["principals", "grants", "credentials", "oidc_bindings", "admin_objects", "audit_records", "ingest_events", "ingest_acquisitions", "ingest_identity_links", "export_jobs", "_sqlx_migrations"]:
+                self.assertEqual(sql("SELECT count(*) FROM " + table + ";", "analytics"), sql("SELECT count(*) FROM " + table + ";", "engine_restore"))
+            with Service(name="restored", address=service.address) as restored:
+                shutil.copytree(service.exports, restored.exports, dirs_exist_ok=True)
+                shutil.copytree(service.secrets, restored.secrets, dirs_exist_ok=True)
+                runtime = Path(service.env["ANALYTICS_DATABASE_URL_FILE"]).read_text()
+                dsn = restored.directory / "database-url"
+                dsn.write_text(runtime.rsplit("/", 1)[0] + "/engine_restore")
+                dsn.chmod(0o600)
+                restored.env["ANALYTICS_DATABASE_URL_FILE"] = str(dsn)
+                restored.env["ANALYTICS_OIDC_ISSUER"] = service.oidc.issuer
+                restored.handoff = service.handoff
+                restored.client = Client(restored.url, service.handoff["credential"]["token"])
+                restored.start()
+                restored.client.initialize()
+                self.assertEqual(restored.client.tool("identity")["principal_id"], service.handoff["agent_id"])
+                with self.assertRaises(HTTPError) as denied:
+                    Client(restored.url, credential["token"]).tool("identity")
+                self.assertEqual(denied.exception.code, 401)
+                manifest = restored.client.tool("export_manifest", {"id": saved_manifest["export_id"]})
+                self.assertEqual(manifest, saved_manifest)
+                for dataset in manifest["datasets"]:
+                    restored.client.download(dataset, restored.directory / "restored-download")
+                new_bundle = download_bundle(restored, source, restored.directory / "fresh-export")
+                report = analyze(new_bundle, restored.directory / "fresh-report")
+                campaign = next(row for row in report["campaigns"] if row["campaign"] == "glass-garden")
+                self.assertEqual(campaign["retention"]["D180"]["numerator"], 1)
+                output = restored.directory / "forbidden-rebootstrap.json"
+                result = restored.command("bootstrap", "--owner", "duplicate", "--agent", "duplicate", "--output", str(output), check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+        finally:
+            sql("DROP DATABASE engine_restore WITH (FORCE);")
 
 
 if __name__ == "__main__":
