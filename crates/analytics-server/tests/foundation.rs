@@ -677,6 +677,19 @@ async fn postgres_foundation_security_and_protocol() {
     header.typ = Some("at+jwt".into());
     let claims = json!({"iss":issuer,"aud":audience,"sub":"synthetic-human-subject","exp":(Utc::now()+Duration::minutes(10)).timestamp(),"iat":Utc::now().timestamp(),"client_id":"synthetic-client","jti":Uuid::new_v4().to_string()});
     let jwt = encode(&header, &claims, &signing).unwrap();
+    let mut tampered = jwt.clone().into_bytes();
+    let signature_start = jwt.rfind('.').unwrap() + 1;
+    tampered[signature_start] = if tampered[signature_start] == b'A' {
+        b'B'
+    } else {
+        b'A'
+    };
+    assert!(
+        oidc_auth
+            .authenticate(&String::from_utf8(tampered).unwrap())
+            .await
+            .is_err()
+    );
     let external = oidc_auth.authenticate(&jwt).await.unwrap();
     assert_eq!(external.principal_id, human_id);
     oidc_auth
