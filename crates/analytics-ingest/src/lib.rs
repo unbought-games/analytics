@@ -260,7 +260,7 @@ impl Extension for IngestionExtension {
                     .auth
                     .authorize(actor, "identity:manage", &Resource::property(r.property_id))
                     .await?;
-                json(journey::handoff(state, r).await?)
+                json(journey::handoff(state, r, Some(actor)).await?)
             }
             "ingest_redeem" => redeem(state, actor, parse(args)?).await,
             "ingest_identity_link" => identity_link(state, actor, parse(args)?).await,
@@ -271,7 +271,7 @@ impl Extension for IngestionExtension {
                     .auth
                     .authorize(actor, "identity:manage", &Resource::property(r.property_id))
                     .await?;
-                journey_reset(state, r).await
+                privacy::browser_choice(state, r, true, Some(actor)).await
             }
             "ingest_withdraw" => withdraw(state, actor, parse(args)?).await,
             "ingest_delete" => delete(state, actor, parse(args)?).await,
@@ -285,7 +285,4 @@ impl Extension for IngestionExtension {
             _ => Err(ApiError::bad_request("Unknown ingestion operation")),
         }
     }
-}
-async fn journey_reset(state: &AppState, r: BrowserChoiceRequest) -> ApiResult<Value> {
-    privacy::browser_choice(state, r, true).await
 }

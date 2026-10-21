@@ -106,7 +106,7 @@ async fn public_handoff(
     Json(r): Json<HandoffRequest>,
 ) -> ApiResult<Json<HandoffResponse>> {
     browser_auth(&s, &headers, r.property_id, false).await?;
-    Ok(Json(journey::handoff(&s, r).await?))
+    Ok(Json(journey::handoff(&s, r, None).await?))
 }
 async fn public_identify(
     State(s): State<AppState>,
@@ -122,7 +122,7 @@ async fn reset(
     Json(r): Json<BrowserChoiceRequest>,
 ) -> ApiResult<Json<Value>> {
     browser_auth(&s, &headers, r.property_id, true).await?;
-    Ok(Json(privacy::browser_choice(&s, r, true).await?))
+    Ok(Json(privacy::browser_choice(&s, r, true, None).await?))
 }
 async fn public_withdraw(
     State(s): State<AppState>,
@@ -130,7 +130,7 @@ async fn public_withdraw(
     Json(r): Json<BrowserChoiceRequest>,
 ) -> ApiResult<Json<Value>> {
     browser_auth(&s, &headers, r.property_id, true).await?;
-    Ok(Json(privacy::browser_choice(&s, r, false).await?))
+    Ok(Json(privacy::browser_choice(&s, r, false, None).await?))
 }
 macro_rules! protected {
     ($name:ident,$ty:ty,$operation:ident) => {
@@ -164,6 +164,23 @@ async fn status_http(
     Query(r): Query<PropertyRequest>,
 ) -> ApiResult<Json<Value>> {
     Ok(Json(status(&s, &a, r.property_id).await?))
+}
+async fn admission(request: Request<axum::body::Body>, next: Next) -> Response {
+    static ADMISSION: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    let semaphore = ADMISSION
+        .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(32)))
+        .clone();
+    let Ok(_permit) = semaphore.try_acquire_owned() else {
+        use axum::response::IntoResponse;
+        return ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "backpressure",
+            "Ingestion request capacity exhausted; retry with backoff",
+        )
+        .into_response();
+    };
+    next.run(request).await
 }
 async fn cors(request: Request<axum::body::Body>, next: Next) -> Response {
     let origin = request.headers().get("origin").cloned();
@@ -217,5 +234,79 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/v1/privacy/delete", post(delete_http))
         .route("/v1/attribution/correct", post(correct_http))
         .layer(DefaultBodyLimit::max(262144))
+        .layer(middleware::from_fn(admission))
         .layer(middleware::from_fn(cors))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tower::ServiceExt;
+    #[tokio::test]
+    async fn request_admission_rejects_excess_without_buffering() {
+        let entered = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new(tokio::sync::Notify::new());
+        let app = Router::new()
+            .route(
+                "/",
+                post({
+                    let entered = entered.clone();
+                    let release = release.clone();
+                    move || {
+                        let entered = entered.clone();
+                        let release = release.clone();
+                        async move {
+                            let notified = release.notified();
+                            entered.fetch_add(1, Ordering::SeqCst);
+                            notified.await;
+                            StatusCode::OK
+                        }
+                    }
+                }),
+            )
+            .layer(middleware::from_fn(admission));
+        let mut requests = Vec::new();
+        for _ in 0..32 {
+            let app = app.clone();
+            requests.push(tokio::spawn(async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status()
+            }));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while entered.load(Ordering::SeqCst) < 32 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        release.notify_waiters();
+        for request in requests {
+            assert_eq!(request.await.unwrap(), StatusCode::OK);
+        }
+    }
 }

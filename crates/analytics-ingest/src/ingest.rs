@@ -76,10 +76,10 @@ fn validate(
     {
         return Err("invalid_identity");
     }
-    if let Some(s) = &e.subject {
-        if !safe_key(&s.namespace) || !bounded_text(&s.id, 256) {
-            return Err("invalid_identity");
-        }
+    if let Some(s) = &e.subject
+        && (!safe_key(&s.namespace) || !bounded_text(&s.id, 256))
+    {
+        return Err("invalid_identity");
     }
     match e.collection.profile {
         CollectionProfile::Minimal
@@ -135,17 +135,16 @@ fn validate(
     {
         return Err("verified_subject_required");
     }
-    if let Some(v) = &e.logical_time {
-        if e.clock != "game"
+    if let Some(v) = &e.logical_time
+        && (e.clock != "game"
             || v.len() > 30
             || v.is_empty()
-            || !v.bytes().all(|b| b.is_ascii_digit())
-        {
-            return Err("invalid_logical_time");
-        }
+            || !v.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return Err("invalid_logical_time");
     }
-    if let Some(c) = &e.campaign {
-        if [
+    if let Some(c) = &e.campaign
+        && [
             &c.utm_source,
             &c.utm_medium,
             &c.utm_campaign,
@@ -155,9 +154,8 @@ fn validate(
         ]
         .iter()
         .any(|v| v.as_ref().is_some_and(|v| !bounded_text(v, 256)))
-        {
-            return Err("invalid_campaign");
-        }
+    {
+        return Err("invalid_campaign");
     }
     if e.properties.len() > 32 {
         return Err("too_many_properties");
@@ -236,6 +234,40 @@ pub(crate) async fn ingest(
             }
             Err(error) => return Err(error),
         };
+        let quota:i32=sqlx::query_scalar("INSERT INTO ingest_quotas(property_id,window_start,events) VALUES($1,date_trunc('minute',$2::timestamptz),1) ON CONFLICT(property_id) DO UPDATE SET events=CASE WHEN ingest_quotas.window_start=date_trunc('minute',$2::timestamptz) THEN LEAST(ingest_quotas.events+1,6001) ELSE 1 END,window_start=date_trunc('minute',$2::timestamptz) RETURNING events")
+            .bind(p.id).bind(now).fetch_one(&mut *tx).await?;
+        if quota > 6000 {
+            count(&mut tx, p.id, "rate_limited", 1).await?;
+            results.push(result(e.event_id, "rejected", Some("rate_limited"), None));
+            continue;
+        }
+        let deleted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM ingest_suppressions WHERE property_id=$1 AND kind='event' AND identifier_hash=$2)").bind(p.id).bind(hash(&e.event_id.to_string())).fetch_one(&mut *tx).await?;
+        if deleted {
+            count(&mut tx, p.id, "deleted_event", 1).await?;
+            results.push(result(e.event_id, "rejected", Some("deleted_event"), None));
+            continue;
+        }
+        if suppressed(
+            &mut tx,
+            p.id,
+            e.visit_id.as_deref(),
+            e.visitor_id.as_deref(),
+            e.subject.as_ref(),
+        )
+        .await?
+        {
+            count(&mut tx, p.id, "suppressed", 1).await?;
+            results.push(result(e.event_id, "rejected", Some("suppressed"), None));
+            continue;
+        }
+        let payload = serde_json::to_value(&e).map_err(|_| ApiError::internal())?;
+        let fingerprint = hash(&payload.to_string());
+        if let Some(row)=sqlx::query("SELECT fingerprint,receipt_cursor FROM ingest_receipts WHERE property_id=$1 AND event_id=$2 AND expires_at>clock_timestamp()")
+            .bind(p.id).bind(e.event_id).fetch_optional(&mut *tx).await? {
+            let same=row.get::<String,_>("fingerprint")==fingerprint;
+            let status=if same {"duplicate"} else {"conflict"}; count(&mut tx,p.id,status,1).await?;
+            results.push(result(e.event_id,status,if same {None}else{Some("event_id_conflict")},if same {Some(row.get("receipt_cursor"))}else{None})); continue;
+        }
         let schema: EventSchemaDefinition = match object(
             &mut tx,
             "schemas",
@@ -263,29 +295,8 @@ pub(crate) async fn ingest(
             results.push(result(e.event_id, "rejected", Some(code), None));
             continue;
         }
-        if suppressed(
-            &mut tx,
-            p.id,
-            e.visit_id.as_deref(),
-            e.visitor_id.as_deref(),
-            e.subject.as_ref(),
-        )
-        .await?
-        {
-            count(&mut tx, p.id, "suppressed", 1).await?;
-            results.push(result(e.event_id, "rejected", Some("suppressed"), None));
-            continue;
-        }
-        let payload = serde_json::to_value(&e).map_err(|_| ApiError::internal())?;
-        let fingerprint = hash(&payload.to_string());
-        if let Some(row)=sqlx::query("SELECT fingerprint,receipt_cursor FROM ingest_receipts WHERE property_id=$1 AND event_id=$2 AND expires_at>clock_timestamp()")
-            .bind(p.id).bind(e.event_id).fetch_optional(&mut *tx).await? {
-            let same=row.get::<String,_>("fingerprint")==fingerprint;
-            let status=if same {"duplicate"} else {"conflict"}; count(&mut tx,p.id,status,1).await?;
-            results.push(result(e.event_id,status,if same {None}else{Some("event_id_conflict")},if same {Some(row.get("receipt_cursor"))}else{None})); continue;
-        }
-        if let Some(t) = e.touch_id {
-            if resolve_touch(
+        if let Some(t) = e.touch_id
+            && resolve_touch(
                 &mut tx,
                 t,
                 p.id,
@@ -295,27 +306,35 @@ pub(crate) async fn ingest(
             )
             .await?
             .is_none()
+        {
+            count(&mut tx, p.id, "invalid_touch", 1).await?;
+            results.push(result(e.event_id, "rejected", Some("invalid_touch"), None));
+            continue;
+        }
+        if let Some(subject) = &e.subject {
+            let previous=sqlx::query("SELECT subject_namespace,subject_id FROM ingest_bindings WHERE property_id=$1 AND visit_id=$2 AND visitor_id=$3 AND ended_at IS NULL AND expires_at>clock_timestamp()")
+                .bind(p.id).bind(e.visit_id.as_deref().unwrap_or("")).bind(e.visitor_id.as_deref().unwrap_or("")).fetch_optional(&mut *tx).await?;
+            if let Some(row) = previous
+                && (row.get::<String, _>("subject_namespace") != subject.namespace
+                    || row.get::<String, _>("subject_id") != subject.id)
             {
-                count(&mut tx, p.id, "invalid_touch", 1).await?;
-                results.push(result(e.event_id, "rejected", Some("invalid_touch"), None));
+                count(&mut tx, p.id, "identity_conflict", 1).await?;
+                results.push(result(
+                    e.event_id,
+                    "rejected",
+                    Some("identity_conflict"),
+                    None,
+                ));
                 continue;
             }
         }
         // A verified proof creates bindings. Public envelope subjects remain forbidden.
-        if browser && e.collection.profile == CollectionProfile::Identified {
-            if let Some(row)=sqlx::query("SELECT subject_namespace,subject_id FROM ingest_bindings WHERE property_id=$1 AND visit_id=$2 AND visitor_id=$3 AND expires_at>$4")
+        if browser && e.collection.profile == CollectionProfile::Identified
+            && let Some(row)=sqlx::query("SELECT subject_namespace,subject_id FROM ingest_bindings WHERE property_id=$1 AND visit_id=$2 AND visitor_id=$3 AND expires_at>$4 AND ended_at IS NULL")
                 .bind(p.id).bind(e.visit_id.as_deref().unwrap_or("")).bind(e.visitor_id.as_deref().unwrap_or("")).bind(now).fetch_optional(&mut *tx).await? {
                 e.subject=Some(NamespacedId {namespace:row.get("subject_namespace"),id:row.get("subject_id")});
                 if suppressed(&mut tx,p.id,None,None,e.subject.as_ref()).await? {results.push(result(e.event_id,"rejected",Some("suppressed"),None));continue;}
             }
-        }
-        let quota:i32=sqlx::query_scalar("INSERT INTO ingest_quotas(property_id,window_start,events) VALUES($1,date_trunc('minute',$2::timestamptz),1) ON CONFLICT(property_id) DO UPDATE SET events=CASE WHEN ingest_quotas.window_start=date_trunc('minute',$2::timestamptz) THEN ingest_quotas.events+1 ELSE 1 END,window_start=date_trunc('minute',$2::timestamptz) RETURNING events")
-            .bind(p.id).bind(now).fetch_one(&mut *tx).await?;
-        if quota > 6000 {
-            count(&mut tx, p.id, "rate_limited", 1).await?;
-            results.push(result(e.event_id, "rejected", Some("rate_limited"), None));
-            continue;
-        }
         sqlx::query("DELETE FROM ingest_events WHERE property_id=$1 AND event_id=$2 AND expires_at<=clock_timestamp()")
             .bind(p.id).bind(e.event_id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM ingest_receipts WHERE property_id=$1 AND event_id=$2 AND expires_at<=clock_timestamp()")
@@ -330,14 +349,13 @@ pub(crate) async fn ingest(
             .bind(p.policy.version).bind(profile_name(&e.collection.profile)).bind(&e.visit_id).bind(&e.visitor_id)
             .bind(e.subject.as_ref().map(|s|&s.namespace)).bind(e.subject.as_ref().map(|s|&s.id))
             .bind(now+Duration::days(p.policy.event_retention_days as i64)).fetch_one(&mut *tx).await?;
-        if let Some(c) = &e.campaign {
-            if (c.utm_campaign.is_some() || c.experiment_id.is_some() || c.utm_source.is_some())
-                && (e.visit_id.is_some() || e.visitor_id.is_some())
-            {
-                sqlx::query("INSERT INTO ingest_touches(touch_id,property_id,event_id,occurred_at,visit_id,visitor_id,campaign,policy_version,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        if let Some(c) = &e.campaign
+            && (c.utm_campaign.is_some() || c.experiment_id.is_some() || c.utm_source.is_some())
+            && (e.visit_id.is_some() || e.visitor_id.is_some())
+        {
+            sqlx::query("INSERT INTO ingest_touches(touch_id,property_id,event_id,occurred_at,visit_id,visitor_id,campaign,policy_version,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
                     .bind(touch_uuid(p.id,e.event_id)).bind(p.id).bind(e.event_id).bind(e.occurred_at).bind(&e.visit_id).bind(&e.visitor_id).bind(serde_json::to_value(c).unwrap()).bind(p.policy.version)
                     .bind(now+Duration::days(p.policy.attribution_window_days as i64)).execute(&mut *tx).await?;
-            }
         }
         if let Err(error) = attribute(&mut tx, &e, &p, now).await {
             if !error.status.is_client_error() {
@@ -358,8 +376,9 @@ pub(crate) async fn ingest(
         sqlx::query("RELEASE SAVEPOINT event_write")
             .execute(&mut *tx)
             .await?;
-        sqlx::query("INSERT INTO ingest_receipts(property_id,event_id,fingerprint,receipt_cursor,expires_at) VALUES($1,$2,$3,$4,$5)")
-            .bind(p.id).bind(e.event_id).bind(fingerprint).bind(cursor).bind(now+Duration::days(p.policy.identity_retention_days.max(p.policy.event_retention_days).max(365) as i64)).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO ingest_receipts(property_id,event_id,fingerprint,receipt_cursor,expires_at,subject_hash,visit_hash,visitor_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+            .bind(p.id).bind(e.event_id).bind(fingerprint).bind(cursor).bind(now+Duration::days(p.policy.identity_retention_days.max(p.policy.event_retention_days).max(365) as i64))
+            .bind(e.subject.as_ref().map(subject_hash)).bind(e.visit_id.as_deref().map(hash)).bind(e.visitor_id.as_deref().map(hash)).execute(&mut *tx).await?;
         count(&mut tx, p.id, "accepted", 1).await?;
         count(
             &mut tx,

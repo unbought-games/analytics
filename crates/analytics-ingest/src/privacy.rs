@@ -11,6 +11,7 @@ pub(crate) async fn browser_choice(
     state: &AppState,
     r: BrowserChoiceRequest,
     reset: bool,
+    actor: Option<&AuthContext>,
 ) -> ApiResult<Value> {
     identifiers(r.visit_id.as_deref(), r.visitor_id.as_deref())?;
     let mut tx = state.db.begin().await?;
@@ -22,13 +23,23 @@ pub(crate) async fn browser_choice(
     if let Some(v) = &r.visitor_id {
         suppress(&mut tx, r.property_id, "visitor", hash(v), reason).await?;
     }
-    sqlx::query("DELETE FROM ingest_bindings WHERE property_id=$1 AND (($2::text IS NOT NULL AND visit_id=$2) OR ($3::text IS NOT NULL AND visitor_id=$3))")
+    sqlx::query("UPDATE ingest_bindings SET ended_at=clock_timestamp() WHERE property_id=$1 AND (($2::text IS NOT NULL AND visit_id=$2) OR ($3::text IS NOT NULL AND visitor_id=$3))")
         .bind(r.property_id).bind(&r.visit_id).bind(&r.visitor_id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM ingest_proofs WHERE property_id=$1 AND (($2::text IS NOT NULL AND visit_id=$2) OR ($3::text IS NOT NULL AND visitor_id=$3))")
         .bind(r.property_id).bind(&r.visit_id).bind(&r.visitor_id).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM ingest_handoffs WHERE (property_id=$1 AND (($2::text IS NOT NULL AND visit_id=$2) OR ($3::text IS NOT NULL AND visitor_id=$3))) OR (audience=$1 AND (($2::text IS NOT NULL AND redeemed_visit_id=$2) OR ($3::text IS NOT NULL AND redeemed_visitor_id=$3)))")
         .bind(r.property_id).bind(&r.visit_id).bind(&r.visitor_id).execute(&mut *tx).await?;
     count(&mut tx, r.property_id, reason, 1).await?;
+    if let Some(actor) = actor {
+        audit(
+            &mut tx,
+            actor,
+            r.property_id,
+            reason,
+            json!({"boundary":"suppressed"}),
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(done())
 }
@@ -46,19 +57,72 @@ pub async fn withdraw(
     }
     let mut tx = state.db.begin().await?;
     lock(&mut tx).await?;
+    let mut subjects = Vec::new();
     if let Some(s) = &r.subject {
+        subjects.push((s.namespace.clone(), s.id.clone()));
+    }
+    let mut visitors: Vec<String> = r.visitor_id.clone().into_iter().collect();
+    let mut visits = Vec::<String>::new();
+    let mut index = 0;
+    while index < subjects.len() {
+        if subjects.len() > 10000 {
+            return Err(ApiError::bad_request(
+                "Identity graph exceeds withdrawal budget",
+            ));
+        }
+        let (ns, id) = subjects[index].clone();
+        index += 1;
         suppress(
             &mut tx,
             r.property_id,
             "subject",
-            subject_hash(s),
+            subject_hash(&NamespacedId {
+                namespace: ns.clone(),
+                id: id.clone(),
+            }),
             "withdrawal",
         )
         .await?;
+        let linked=sqlx::query("SELECT subject_namespace,subject_id,target_namespace,target_id FROM ingest_identity_links WHERE property_id=$1 AND ((subject_namespace=$2 AND subject_id=$3) OR (target_namespace=$2 AND target_id=$3))")
+            .bind(r.property_id).bind(&ns).bind(&id).fetch_all(&mut *tx).await?;
+        for row in linked {
+            for value in [
+                (
+                    row.get::<String, _>("subject_namespace"),
+                    row.get::<String, _>("subject_id"),
+                ),
+                (row.get("target_namespace"), row.get("target_id")),
+            ] {
+                if !subjects.contains(&value) {
+                    subjects.push(value);
+                }
+            }
+        }
+        let boundaries=sqlx::query("SELECT visit_id,visitor_id FROM ingest_bindings WHERE property_id=$1 AND subject_namespace=$2 AND subject_id=$3")
+            .bind(r.property_id).bind(ns).bind(id).fetch_all(&mut *tx).await?;
+        for row in boundaries {
+            let visit: String = row.get("visit_id");
+            let visitor: String = row.get("visitor_id");
+            if !visit.is_empty() && !visits.contains(&visit) {
+                visits.push(visit);
+            }
+            if !visitor.is_empty() && !visitors.contains(&visitor) {
+                visitors.push(visitor);
+            }
+        }
     }
-    if let Some(v) = &r.visitor_id {
+    for v in &visitors {
         suppress(&mut tx, r.property_id, "visitor", hash(v), "withdrawal").await?;
     }
+    for v in &visits {
+        suppress(&mut tx, r.property_id, "visit", hash(v), "withdrawal").await?;
+    }
+    sqlx::query("UPDATE ingest_bindings SET ended_at=clock_timestamp() WHERE property_id=$1 AND (visitor_id=ANY($2) OR visit_id=ANY($3))")
+        .bind(r.property_id).bind(&visitors).bind(&visits).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM ingest_proofs WHERE property_id=$1 AND (visitor_id=ANY($2) OR visit_id=ANY($3))")
+        .bind(r.property_id).bind(&visitors).bind(&visits).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM ingest_handoffs WHERE (property_id=$1 AND (visitor_id=ANY($2) OR visit_id=ANY($3))) OR (audience=$1 AND (redeemed_visitor_id=ANY($2) OR redeemed_visit_id=ANY($3)))")
+        .bind(r.property_id).bind(&visitors).bind(&visits).execute(&mut *tx).await?;
     audit(
         &mut tx,
         actor,
@@ -140,17 +204,23 @@ pub async fn delete(state: &AppState, actor: &AuthContext, r: DeletionRequest) -
         let rows=sqlx::query("SELECT DISTINCT visit_id,visitor_id FROM ingest_events WHERE property_id=$1 AND subject_namespace=$2 AND subject_id=$3 UNION SELECT visit_id,visitor_id FROM ingest_bindings WHERE property_id=$1 AND subject_namespace=$2 AND subject_id=$3")
             .bind(r.property_id).bind(ns).bind(id).fetch_all(&mut *tx).await?;
         for row in rows {
-            if let Some(v) = row.get::<Option<String>, _>("visit_id") {
-                if !v.is_empty() && !visits.contains(&v) {
-                    visits.push(v);
-                }
+            if let Some(v) = row.get::<Option<String>, _>("visit_id")
+                && !v.is_empty()
+                && !visits.contains(&v)
+            {
+                visits.push(v);
             }
-            if let Some(v) = row.get::<Option<String>, _>("visitor_id") {
-                if !v.is_empty() && !visitors.contains(&v) {
-                    visitors.push(v);
-                }
+            if let Some(v) = row.get::<Option<String>, _>("visitor_id")
+                && !v.is_empty()
+                && !visitors.contains(&v)
+            {
+                visitors.push(v);
             }
         }
+        let fingerprint = subject_hash(&s);
+        erase_receipts(&mut tx, r.property_id, vec![fingerprint], vec![], vec![]).await?;
+        sqlx::query("UPDATE ingest_audit SET details='{\"redacted_by_deletion\":true}'::jsonb WHERE property_id=$1 AND action='acquisition_correction' AND details->>'signup_event_id' IN (SELECT signup_event_id::text FROM ingest_acquisitions WHERE property_id=$1 AND subject_namespace=$2 AND subject_id=$3)")
+            .bind(r.property_id).bind(ns).bind(id).execute(&mut *tx).await?;
         for table in [
             "ingest_events",
             "ingest_acquisitions",
@@ -169,6 +239,14 @@ pub async fn delete(state: &AppState, actor: &AuthContext, r: DeletionRequest) -
     for v in &visits {
         suppress(&mut tx, r.property_id, "visit", hash(v), "deletion").await?;
     }
+    erase_receipts(
+        &mut tx,
+        r.property_id,
+        vec![],
+        visitors.iter().map(|v| hash(v)).collect(),
+        visits.iter().map(|v| hash(v)).collect(),
+    )
+    .await?;
     for table in [
         "ingest_events",
         "ingest_touches",
@@ -189,7 +267,7 @@ pub async fn delete(state: &AppState, actor: &AuthContext, r: DeletionRequest) -
         .bind(r.property_id).bind(&visitors).bind(&visits).execute(&mut *tx).await?;
     invalidate_exports(&mut tx, r.property_id).await?;
     // Audit excludes submitted reason (which may contain personal information).
-    audit(&mut tx,actor,r.property_id,"privacy_delete",json!({"verified_identities":subjects.len(),"visitor_boundaries":visitors.len(),"reason_recorded":true})).await?;
+    audit(&mut tx,actor,r.property_id,"privacy_delete",json!({"verified_identities":subjects.len(),"visitor_boundaries":visitors.len(),"reason_category":"user_request"})).await?;
     tx.commit().await?;
     Ok(done())
 }
@@ -269,4 +347,18 @@ pub async fn retain(state: &AppState, actor: &AuthContext, property_id: Uuid) ->
     .await?;
     tx.commit().await?;
     Ok(json!({"removed":removed,"batch_limit_per_table":10000}))
+}
+
+async fn erase_receipts(
+    db: &mut sqlx::PgConnection,
+    property: Uuid,
+    subjects: Vec<String>,
+    visitors: Vec<String>,
+    visits: Vec<String>,
+) -> ApiResult<()> {
+    sqlx::query("INSERT INTO ingest_suppressions(property_id,kind,identifier_hash,reason) SELECT property_id,'event',encode(sha256(convert_to(event_id::text,'UTF8')),'hex'),'deletion' FROM ingest_receipts WHERE property_id=$1 AND (subject_hash=ANY($2) OR visitor_hash=ANY($3) OR visit_hash=ANY($4)) ON CONFLICT DO NOTHING")
+        .bind(property).bind(&subjects).bind(&visitors).bind(&visits).execute(&mut *db).await?;
+    sqlx::query("DELETE FROM ingest_receipts WHERE property_id=$1 AND (subject_hash=ANY($2) OR visitor_hash=ANY($3) OR visit_hash=ANY($4))")
+        .bind(property).bind(subjects).bind(visitors).bind(visits).execute(db).await?;
+    Ok(())
 }

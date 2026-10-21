@@ -117,12 +117,13 @@ pub(crate) async fn audit(
     details: Value,
 ) -> ApiResult<()> {
     sqlx::query(
-        "INSERT INTO ingest_audit(principal_id,property_id,action,details) VALUES($1,$2,$3,$4)",
+        "INSERT INTO ingest_audit(principal_id,property_id,action,details,delegated_by) VALUES($1,$2,$3,$4,$5)",
     )
     .bind(actor.principal_id)
     .bind(property)
     .bind(action)
     .bind(details)
+    .bind(actor.delegated_by)
     .execute(db)
     .await?;
     Ok(())
@@ -182,14 +183,13 @@ pub(crate) async fn attribute(
         let old=sqlx::query("SELECT subject_namespace,subject_id FROM ingest_bindings WHERE property_id=$1 AND visit_id=$2 AND visitor_id=$3")
             .bind(p.id).bind(event.visit_id.as_deref().unwrap_or("")).bind(event.visitor_id.as_deref().unwrap_or(""))
             .fetch_optional(&mut *db).await?;
-        if let Some(old) = old {
-            if old.get::<String, _>("subject_namespace") != subject.namespace
-                || old.get::<String, _>("subject_id") != subject.id
-            {
-                return Err(ApiError::bad_request(
-                    "Reset required before account switching",
-                ));
-            }
+        if let Some(old) = old
+            && (old.get::<String, _>("subject_namespace") != subject.namespace
+                || old.get::<String, _>("subject_id") != subject.id)
+        {
+            return Err(ApiError::bad_request(
+                "Reset required before account switching",
+            ));
         }
         sqlx::query("INSERT INTO ingest_bindings(property_id,visit_id,visitor_id,subject_namespace,subject_id,evidence_event_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING")
             .bind(p.id).bind(event.visit_id.as_deref().unwrap_or("")).bind(event.visitor_id.as_deref().unwrap_or(""))
@@ -218,4 +218,17 @@ pub(crate) fn parse<T: DeserializeOwned>(value: Value) -> ApiResult<T> {
 }
 pub(crate) fn done() -> Value {
     json!({"ok":true})
+}
+
+pub(crate) async fn capability_quota(db: &mut PgConnection, property: Uuid) -> ApiResult<()> {
+    let used:i32=sqlx::query_scalar("INSERT INTO ingest_quotas(property_id,window_start,events) VALUES($1,date_trunc('minute',clock_timestamp()),1) ON CONFLICT(property_id) DO UPDATE SET events=CASE WHEN ingest_quotas.window_start=date_trunc('minute',clock_timestamp()) THEN LEAST(ingest_quotas.events+1,6001) ELSE 1 END,window_start=date_trunc('minute',clock_timestamp()) RETURNING events")
+        .bind(property).fetch_one(db).await?;
+    if used > 6000 {
+        return Err(ApiError::new(
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Property request budget exhausted",
+        ));
+    }
+    Ok(())
 }

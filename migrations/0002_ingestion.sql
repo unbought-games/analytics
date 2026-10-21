@@ -28,8 +28,11 @@ CREATE INDEX ingest_events_expiry ON ingest_events(expires_at);
 CREATE TABLE ingest_receipts (
  property_id uuid NOT NULL,event_id uuid NOT NULL,fingerprint text NOT NULL,
  receipt_cursor bigint NOT NULL,expires_at timestamptz NOT NULL,
+ subject_hash text,visit_hash text,visitor_hash text,
  PRIMARY KEY(property_id,event_id)
 );
+CREATE INDEX ingest_receipts_subject ON ingest_receipts(property_id,subject_hash);
+CREATE INDEX ingest_receipts_visitor ON ingest_receipts(property_id,visitor_hash);
 CREATE TABLE ingest_touches (
  touch_id uuid PRIMARY KEY,property_id uuid NOT NULL,event_id uuid NOT NULL,
  occurred_at timestamptz NOT NULL,received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -62,6 +65,7 @@ CREATE TABLE ingest_bindings (
  property_id uuid NOT NULL,visit_id text NOT NULL,visitor_id text NOT NULL,
  subject_namespace text NOT NULL,subject_id text NOT NULL,evidence_event_id uuid NOT NULL,
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),expires_at timestamptz NOT NULL,
+ ended_at timestamptz,
  PRIMARY KEY(property_id,visit_id,visitor_id)
 );
 CREATE TABLE ingest_suppressions (
@@ -83,7 +87,7 @@ CREATE TABLE ingest_quotas (
  property_id uuid PRIMARY KEY,window_start timestamptz NOT NULL,events integer NOT NULL
 );
 CREATE TABLE ingest_audit (
- id bigserial PRIMARY KEY,principal_id uuid NOT NULL,property_id uuid NOT NULL,
+ id bigserial PRIMARY KEY,principal_id uuid NOT NULL,delegated_by uuid,property_id uuid NOT NULL,
  action text NOT NULL,details jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 CREATE TABLE ingest_browser_tokens (

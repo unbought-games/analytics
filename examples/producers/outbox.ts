@@ -5,6 +5,21 @@ import { Pool } from "pg";
 import { readFile } from "node:fs/promises";
 import type { IngestBatch, IngestAcknowledgement } from "../../packages/browser/src/wire.js";
 
+/** Atomic synthetic application change and outbox reservation. */
+export async function applyCommand(pool: Pool, event: IngestBatch["events"][number], playerId: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(935792)");
+    const pending = await client.query("SELECT count(*)::integer AS count FROM analytics_outbox WHERE delivered_at IS NULL");
+    if (pending.rows[0].count >= 10000) throw new Error("outbox_capacity_exhausted");
+    await client.query("INSERT INTO synthetic_commands(command_id,player_id) VALUES($1,$2)", [event.event_id, playerId]);
+    await client.query("INSERT INTO analytics_outbox(event_id,payload) VALUES($1,$2)", [event.event_id, JSON.stringify(event)]);
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+}
+
 export async function dispatch(pool: Pool, endpoint: string, credentialFile: string): Promise<number> {
   const client = await pool.connect();
   let rows: { event_id: string; payload: IngestBatch["events"][number]; attempts: number }[];

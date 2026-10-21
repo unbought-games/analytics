@@ -486,6 +486,8 @@ async fn campaign_handoff_retry_expiry_immutable_signup_and_scheduled_semantics(
             .unwrap();
     assert_eq!(campaign["utm_campaign"], "acquired");
     let mut login = event(&q, "login");
+    login.visit_id = Some("existing-account-visit".into());
+    login.visitor_id = Some("existing-account-visitor".into());
     login.subject = Some(NamespacedId {
         namespace: "synthetic-issuer".into(),
         id: "existing-account".into(),
@@ -769,4 +771,324 @@ async fn transactional_outbox_rollback_outage_and_retry_recovery() {
         .unwrap();
     assert_eq!(count, 1);
     task.abort();
+}
+
+#[tokio::test]
+async fn concurrent_receipts_retention_and_no_resurrection_after_horizon() {
+    let s = state().await;
+    let (p, t) = configure(&s, CollectionProfile::Identified).await;
+    let mut e = event(&p, "page_view");
+    e.campaign = Some(campaign("concurrent"));
+    let (a, b) = tokio::join!(
+        browser(&s, &t, vec![e.clone()]),
+        browser(&s, &t, vec![e.clone()])
+    );
+    let mut statuses = vec![
+        a["results"][0]["status"].as_str().unwrap(),
+        b["results"][0]["status"].as_str().unwrap(),
+    ];
+    statuses.sort();
+    assert_eq!(statuses, vec!["accepted", "duplicate"]);
+    let mut follow = event(&p, "page_view");
+    follow.touch_id = Some(e.event_id);
+    assert_eq!(
+        browser(&s, &t, vec![follow]).await["results"][0]["status"],
+        "accepted"
+    );
+    let mut first = event(&p, "page_view");
+    first.campaign = Some(campaign("same-batch"));
+    let mut next = event(&p, "page_view");
+    next.touch_id = Some(first.event_id);
+    let ack = browser(&s, &t, vec![first, next]).await;
+    assert!(
+        ack["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|a| a["status"] == "accepted")
+    );
+    sqlx::query("UPDATE ingest_events SET expires_at=now()-interval '1 second'")
+        .execute(&s.db)
+        .await
+        .unwrap();
+    let retained = retain(&s, &actor(), p.id).await.unwrap();
+    assert!(retained["removed"].as_u64().unwrap() >= 4);
+    assert_eq!(
+        browser(&s, &t, vec![e.clone()]).await["results"][0]["status"],
+        "duplicate"
+    );
+    sqlx::query("UPDATE ingest_receipts SET expires_at=now()-interval '1 second'")
+        .execute(&s.db)
+        .await
+        .unwrap();
+    retain(&s, &actor(), p.id).await.unwrap();
+    let receipts: i64 = sqlx::query_scalar("SELECT count(*) FROM ingest_receipts")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(receipts, 0);
+    e.occurred_at = Utc::now() - Duration::days(366);
+    assert_eq!(
+        browser(&s, &t, vec![e]).await["results"][0]["code"],
+        "outside_dedupe_horizon"
+    );
+    let mut quota = event(&p, "page_view");
+    quota.collection.dropped_events = 7;
+    browser(&s, &t, vec![quota.clone()]).await;
+    browser(&s, &t, vec![quota]).await;
+    let drops: i64 = sqlx::query_scalar(
+        "SELECT total FROM ingest_counters WHERE property_id=$1 AND code='client_reported_dropped'",
+    )
+    .bind(p.id)
+    .fetch_one(&s.db)
+    .await
+    .unwrap();
+    assert_eq!(drops, 7);
+    sqlx::query("UPDATE ingest_quotas SET window_start=date_trunc('minute',now()),events=6000 WHERE property_id=$1").bind(p.id).execute(&s.db).await.unwrap();
+    assert_eq!(
+        browser(&s, &t, vec![event(&p, "page_view")]).await["results"][0]["code"],
+        "rate_limited"
+    );
+}
+
+#[tokio::test]
+async fn deletion_after_reset_and_event_retention_removes_original_touches() {
+    let s = state().await;
+    let (mut p, t) = configure(&s, CollectionProfile::Identified).await;
+    let (destination, _) = configure(&s, CollectionProfile::Identified).await;
+    p.handoff_audiences.push(destination.id);
+    save(&s, &p).await;
+    let mut touch = event(&p, "page_view");
+    touch.campaign = Some(campaign("privacy"));
+    browser(&s, &t, vec![touch]).await;
+    let mut signup = event(&p, "signup");
+    signup.subject = Some(subject());
+    accepted(&s, signup.clone()).await;
+    let mut switch = signup.clone();
+    switch.event_id = Uuid::new_v4();
+    switch.subject.as_mut().unwrap().id = "other-account".into();
+    assert_eq!(
+        ingest_server(
+            &s,
+            &actor(),
+            IngestBatch {
+                events: vec![switch]
+            }
+        )
+        .await
+        .unwrap()
+        .results[0]
+            .code
+            .as_deref(),
+        Some("identity_conflict")
+    );
+    let (_,handoff)=request(&s,"/v1/journey/handoff",&t,json!({"property_id":p.id,"audience":destination.id,"visit_id":"visit-1","visitor_id":"visitor-1"}),false).await;
+    redeem(
+        &s,
+        &actor(),
+        RedeemHandoffRequest {
+            handoff: handoff["handoff"].as_str().unwrap().into(),
+            audience: destination.id,
+            visit_id: Some("other-visit".into()),
+            visitor_id: Some("other-visitor".into()),
+        },
+    )
+    .await
+    .unwrap();
+    request(
+        &s,
+        "/v1/identity/reset",
+        &t,
+        json!({"property_id":p.id,"visit_id":"visit-1","visitor_id":"visitor-1"}),
+        false,
+    )
+    .await;
+    sqlx::query("UPDATE ingest_events SET expires_at=now()-interval '1 second'")
+        .execute(&s.db)
+        .await
+        .unwrap();
+    retain(&s, &actor(), p.id).await.unwrap();
+    delete(
+        &s,
+        &actor(),
+        DeletionRequest {
+            property_id: p.id,
+            subject: Some(subject()),
+            visitor_id: None,
+            reason: "synthetic request".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let touches: i64 = sqlx::query_scalar("SELECT count(*) FROM ingest_touches")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(touches, 0);
+    let access: i64 = sqlx::query_scalar("SELECT count(*) FROM ingest_touch_access")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(access, 0);
+    let receipts: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ingest_receipts WHERE property_id=$1")
+            .bind(p.id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(receipts, 0);
+    assert_eq!(
+        ingest_server(
+            &s,
+            &actor(),
+            IngestBatch {
+                events: vec![signup.clone()]
+            }
+        )
+        .await
+        .unwrap()
+        .results[0]
+            .code
+            .as_deref(),
+        Some("deleted_event")
+    );
+    let bindings: i64 = sqlx::query_scalar("SELECT count(*) FROM ingest_bindings")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(bindings, 0);
+}
+
+#[tokio::test]
+async fn policy_change_retry_partial_ack_revocation_and_attribution_boundaries() {
+    let s = state().await;
+    let (mut p, t) = configure(&s, CollectionProfile::Identified).await;
+    let e = event(&p, "page_view");
+    browser(&s, &t, vec![e.clone()]).await;
+    p.policy.version = 2;
+    save(&s, &p).await;
+    assert_eq!(
+        browser(&s, &t, vec![e]).await["results"][0]["status"],
+        "duplicate"
+    );
+    let mut stale = event(&p, "page_view");
+    let mut valid = stale.clone();
+    valid.event_id = Uuid::new_v4();
+    valid.collection.policy_version = 2;
+    let ack = browser(&s, &t, vec![valid, stale.clone()]).await;
+    assert_eq!(ack["results"][0]["status"], "accepted");
+    assert_eq!(ack["results"][1]["code"], "policy_mismatch");
+    p.policy.version = 1;
+    save(&s, &p).await;
+    let signup_at = Utc::now() - Duration::minutes(1);
+    let mut touches = Vec::new();
+    for (name, time) in [
+        (
+            "too-old",
+            signup_at - Duration::days(30) - Duration::seconds(1),
+        ),
+        ("boundary", signup_at - Duration::days(30)),
+        ("at-signup", signup_at),
+        ("too-new", signup_at + Duration::seconds(1)),
+    ] {
+        let mut e = event(&p, "page_view");
+        e.campaign = Some(campaign(name));
+        e.occurred_at = time;
+        e.visit_id = Some("boundary-visit".into());
+        e.visitor_id = Some("boundary-visitor".into());
+        touches.push(e);
+    }
+    browser(&s, &t, touches).await;
+    let mut signup = event(&p, "signup");
+    signup.subject = Some(subject());
+    signup.visit_id = Some("boundary-visit".into());
+    signup.visitor_id = Some("boundary-visitor".into());
+    signup.occurred_at = signup_at;
+    accepted(&s, signup.clone()).await;
+    let campaign: Value =
+        sqlx::query_scalar("SELECT campaign FROM ingest_acquisitions WHERE property_id=$1")
+            .bind(p.id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(campaign["utm_campaign"], "boundary");
+    let last_campaign:Value=sqlx::query_scalar("SELECT t.campaign FROM ingest_touches t JOIN ingest_acquisitions a ON a.last_touch_id=t.touch_id WHERE a.property_id=$1").bind(p.id).fetch_one(&s.db).await.unwrap();
+    assert_eq!(last_campaign["utm_campaign"], "at-signup");
+    correct_acquisition(
+        &s,
+        &actor(),
+        CorrectionRequest {
+            property_id: p.id,
+            subject: subject(),
+            first_touch_id: None,
+            reason: "synthetic invalidation".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let row =
+        sqlx::query("SELECT campaign,rule_version FROM ingest_acquisitions WHERE property_id=$1")
+            .bind(p.id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert!(row.get::<Option<Value>, _>("campaign").is_none());
+    assert_eq!(
+        row.get::<String, _>("rule_version"),
+        "audited-correction-v1"
+    );
+    let audit: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ingest_audit WHERE action='acquisition_correction'",
+    )
+    .fetch_one(&s.db)
+    .await
+    .unwrap();
+    assert_eq!(audit, 1);
+    let mut effect = event(&p, "effect");
+    effect.subject = Some(subject());
+    effect.visit_id = signup.visit_id;
+    effect.visitor_id = signup.visitor_id;
+    accepted(&s, effect.clone()).await;
+    assert!(
+        issue_proof(
+            &s,
+            &actor(),
+            IssueProofRequest {
+                property_id: p.id,
+                visit_id: effect.visit_id,
+                visitor_id: effect.visitor_id,
+                evidence_event_id: effect.event_id
+            }
+        )
+        .await
+        .is_err()
+    );
+    let id: Uuid = sqlx::query_scalar("SELECT id FROM ingest_browser_tokens WHERE property_id=$1")
+        .bind(p.id)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    revoke_token(
+        &s,
+        &actor(),
+        RevokeTokenRequest {
+            property_id: p.id,
+            token_id: id,
+        },
+    )
+    .await
+    .unwrap();
+    stale.collection.policy_version = 1;
+    assert_eq!(
+        request(
+            &s,
+            "/v1/ingest/browser",
+            &t,
+            json!({"events":[stale]}),
+            false
+        )
+        .await
+        .0,
+        401
+    );
 }
