@@ -1,7 +1,9 @@
-use crate::{store::*, validation::*};
+use crate::{batch, store::*, validation::*};
 use analytics_core::*;
 use chrono::{Duration, Utc};
 use sqlx::Row;
+use std::collections::HashMap;
+use uuid::Uuid;
 
 fn rank(p: &CollectionProfile) -> u8 {
     match p {
@@ -219,69 +221,96 @@ pub(crate) async fn ingest(
     let mut tx = state.db.begin().await?;
     lock(&mut tx).await?;
     let now = Utc::now();
+    let (flags, mut receipts) = batch::preflight(&mut tx, &batch.events, now).await?;
+    let mut attempts = HashMap::<Uuid, i32>::new();
+    for e in &batch.events {
+        *attempts.entry(e.property_id).or_default() += 1;
+    }
+    let mut properties = HashMap::<Uuid, Option<PropertyDefinition>>::new();
+    let mut schemas = HashMap::<String, Option<EventSchemaDefinition>>::new();
+    let mut quota_remaining = HashMap::<Uuid, i32>::new();
+    let mut counters = batch::Counters::new();
+    let mut pending = Vec::with_capacity(batch.events.len());
     let mut results = Vec::with_capacity(batch.events.len());
-    for mut e in batch.events {
-        let p = match property(&mut tx, e.property_id).await {
-            Ok(p) => p,
-            Err(error) if error.status.is_client_error() => {
-                results.push(result(
-                    e.event_id,
-                    "rejected",
-                    Some("property_unavailable"),
-                    None,
-                ));
-                continue;
+    let mut result_keys = Vec::with_capacity(batch.events.len());
+    for (ordinal, mut e) in batch.events.into_iter().enumerate() {
+        result_keys.push((e.property_id, e.event_id));
+        if let std::collections::hash_map::Entry::Vacant(cached) = properties.entry(e.property_id) {
+            let p = match property(&mut tx, e.property_id).await {
+                Ok(p) => Some(p),
+                Err(error) if error.status.is_client_error() => None,
+                Err(error) => return Err(error),
+            };
+            if p.is_some() {
+                quota_remaining.insert(
+                    e.property_id,
+                    batch::reserve_quota(&mut tx, e.property_id, browser, attempts[&e.property_id])
+                        .await?,
+                );
             }
-            Err(error) => return Err(error),
+            cached.insert(p);
+        }
+        let Some(p) = properties[&e.property_id].clone() else {
+            results.push(result(
+                e.event_id,
+                "rejected",
+                Some("property_unavailable"),
+                None,
+            ));
+            continue;
         };
-        if !quota(&mut tx, p.id, browser).await? {
-            count(&mut tx, p.id, "rate_limited", 1).await?;
+        let remaining = quota_remaining.get_mut(&p.id).unwrap();
+        if *remaining == 0 {
+            batch::increment(&mut counters, p.id, "rate_limited", 1);
             results.push(result(e.event_id, "rejected", Some("rate_limited"), None));
             continue;
         }
-        let deleted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM ingest_suppressions WHERE property_id=$1 AND kind='event' AND identifier_hash=$2)").bind(p.id).bind(hash(&e.event_id.to_string())).fetch_one(&mut *tx).await?;
+        *remaining -= 1;
+        let (deleted, is_suppressed) = flags[ordinal];
         if deleted {
-            count(&mut tx, p.id, "deleted_event", 1).await?;
+            batch::increment(&mut counters, p.id, "deleted_event", 1);
             results.push(result(e.event_id, "rejected", Some("deleted_event"), None));
             continue;
         }
-        if suppressed(
-            &mut tx,
-            p.id,
-            e.visit_id.as_deref(),
-            e.visitor_id.as_deref(),
-            e.subject.as_ref(),
-        )
-        .await?
-        {
-            count(&mut tx, p.id, "suppressed", 1).await?;
+        if is_suppressed {
+            batch::increment(&mut counters, p.id, "suppressed", 1);
             results.push(result(e.event_id, "rejected", Some("suppressed"), None));
             continue;
         }
         let payload = serde_json::to_value(&e).map_err(|_| ApiError::internal())?;
         let fingerprint = hash(&payload.to_string());
-        if let Some(row)=sqlx::query("SELECT fingerprint,receipt_cursor FROM ingest_receipts WHERE property_id=$1 AND event_id=$2 AND expires_at>clock_timestamp()")
-            .bind(p.id).bind(e.event_id).fetch_optional(&mut *tx).await? {
-            let same=row.get::<String,_>("fingerprint")==fingerprint;
-            let status=if same {"duplicate"} else {"conflict"}; count(&mut tx,p.id,status,1).await?;
-            results.push(result(e.event_id,status,if same {None}else{Some("event_id_conflict")},if same {Some(row.get("receipt_cursor"))}else{None})); continue;
+        if let Some((previous, cursor)) = receipts.get(&(p.id, e.event_id)) {
+            let same = previous == &fingerprint;
+            let status = if same { "duplicate" } else { "conflict" };
+            batch::increment(&mut counters, p.id, status, 1);
+            results.push(result(
+                e.event_id,
+                status,
+                if same {
+                    None
+                } else {
+                    Some("event_id_conflict")
+                },
+                if same { *cursor } else { None },
+            ));
+            continue;
         }
-        let schema: EventSchemaDefinition = match object(
-            &mut tx,
-            "schemas",
-            &format!("{}:{}:{}", e.property_id, e.name, e.schema_version),
-        )
-        .await
-        {
-            Ok(s) => s,
-            Err(error) if error.status.is_client_error() => {
-                count(&mut tx, p.id, "schema_unknown", 1).await?;
-                results.push(result(e.event_id, "rejected", Some("schema_unknown"), None));
-                continue;
-            }
-            Err(error) => return Err(error),
+        let schema_key = format!("{}:{}:{}", e.property_id, e.name, e.schema_version);
+        if !schemas.contains_key(&schema_key) {
+            let schema =
+                match object::<EventSchemaDefinition>(&mut tx, "schemas", &schema_key).await {
+                    Ok(s) => Some(s),
+                    Err(error) if error.status.is_client_error() => None,
+                    Err(error) => return Err(error),
+                };
+            schemas.insert(schema_key.clone(), schema);
+        }
+        let Some(schema) = schemas[&schema_key].as_ref() else {
+            batch::increment(&mut counters, p.id, "schema_unknown", 1);
+            results.push(result(e.event_id, "rejected", Some("schema_unknown"), None));
+            continue;
         };
-        let invalid = validate(&e, &p, &schema, browser).err().or(
+        let invalid = validate(&e, &p, schema, browser).err().or(
             if gpc && p.policy.respect_global_privacy_control {
                 Some("global_privacy_control")
             } else {
@@ -289,7 +318,7 @@ pub(crate) async fn ingest(
             },
         );
         if let Some(code) = invalid {
-            count(&mut tx, p.id, code, 1).await?;
+            batch::increment(&mut counters, p.id, code, 1);
             results.push(result(e.event_id, "rejected", Some(code), None));
             continue;
         }
@@ -305,7 +334,7 @@ pub(crate) async fn ingest(
             .await?
             .is_none()
         {
-            count(&mut tx, p.id, "invalid_touch", 1).await?;
+            batch::increment(&mut counters, p.id, "invalid_touch", 1);
             results.push(result(e.event_id, "rejected", Some("invalid_touch"), None));
             continue;
         }
@@ -316,7 +345,7 @@ pub(crate) async fn ingest(
                 && (row.get::<String, _>("subject_namespace") != subject.namespace
                     || row.get::<String, _>("subject_id") != subject.id)
             {
-                count(&mut tx, p.id, "identity_conflict", 1).await?;
+                batch::increment(&mut counters, p.id, "identity_conflict", 1);
                 results.push(result(
                     e.event_id,
                     "rejected",
@@ -333,10 +362,24 @@ pub(crate) async fn ingest(
                 e.subject=Some(NamespacedId {namespace:row.get("subject_namespace"),id:row.get("subject_id")});
                 if suppressed(&mut tx,p.id,None,None,e.subject.as_ref()).await? {results.push(result(e.event_id,"rejected",Some("suppressed"),None));continue;}
             }
-        sqlx::query("DELETE FROM ingest_events WHERE property_id=$1 AND event_id=$2 AND expires_at<=clock_timestamp()")
-            .bind(p.id).bind(e.event_id).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM ingest_receipts WHERE property_id=$1 AND event_id=$2 AND expires_at<=clock_timestamp()")
-            .bind(p.id).bind(e.event_id).execute(&mut *tx).await?;
+        let creates_touch = e.campaign.as_ref().is_some_and(|c| {
+            c.utm_campaign.is_some() || c.experiment_id.is_some() || c.utm_source.is_some()
+        }) && (e.visit_id.is_some() || e.visitor_id.is_some());
+        if !creates_touch && e.category != EventCategory::Signup {
+            pending.push(batch::pending(&e, &p, &fingerprint, now, ordinal));
+            receipts.insert((p.id, e.event_id), (fingerprint, None));
+            batch::increment(&mut counters, p.id, "accepted", 1);
+            batch::increment(
+                &mut counters,
+                p.id,
+                "client_reported_dropped",
+                e.collection.dropped_events as i64,
+            );
+            results.push(result(e.event_id, "accepted", None, None));
+            continue;
+        }
+        // Flush preceding ordinary events before interdependent touch/signup work.
+        batch::flush(&mut tx, &mut pending, &mut receipts).await?;
         // Per-event savepoint gives semantic rejections an independent rollback.
         sqlx::query("SAVEPOINT event_write")
             .execute(&mut *tx)
@@ -362,7 +405,7 @@ pub(crate) async fn ingest(
             sqlx::query("ROLLBACK TO SAVEPOINT event_write")
                 .execute(&mut *tx)
                 .await?;
-            count(&mut tx, p.id, "identity_conflict", 1).await?;
+            batch::increment(&mut counters, p.id, "identity_conflict", 1);
             results.push(result(
                 e.event_id,
                 "rejected",
@@ -375,17 +418,30 @@ pub(crate) async fn ingest(
             .execute(&mut *tx)
             .await?;
         sqlx::query("INSERT INTO ingest_receipts(property_id,event_id,fingerprint,receipt_cursor,expires_at,subject_hash,visit_hash,visitor_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
-            .bind(p.id).bind(e.event_id).bind(fingerprint).bind(cursor).bind(now+Duration::days(p.policy.identity_retention_days.max(p.policy.event_retention_days).max(365) as i64))
+            .bind(p.id).bind(e.event_id).bind(&fingerprint).bind(cursor).bind(now+Duration::days(p.policy.identity_retention_days.max(p.policy.event_retention_days).max(365) as i64))
             .bind(e.subject.as_ref().map(subject_hash)).bind(e.visit_id.as_deref().map(hash)).bind(e.visitor_id.as_deref().map(hash)).execute(&mut *tx).await?;
-        count(&mut tx, p.id, "accepted", 1).await?;
-        count(
-            &mut tx,
+        batch::increment(&mut counters, p.id, "accepted", 1);
+        batch::increment(
+            &mut counters,
             p.id,
             "client_reported_dropped",
             e.collection.dropped_events as i64,
-        )
-        .await?;
+        );
+        receipts.insert((p.id, e.event_id), (fingerprint, Some(cursor)));
         results.push(result(e.event_id, "accepted", None, Some(cursor)));
+    }
+    batch::flush(&mut tx, &mut pending, &mut receipts).await?;
+    batch::flush_counters(&mut tx, counters).await?;
+    for (ack, key) in results.iter_mut().zip(result_keys) {
+        if matches!(ack.status.as_str(), "accepted" | "duplicate") && ack.receipt_cursor.is_none() {
+            ack.receipt_cursor = Some(
+                receipts
+                    .get(&key)
+                    .and_then(|r| r.1)
+                    .ok_or_else(ApiError::internal)?
+                    .to_string(),
+            );
+        }
     }
     tx.commit().await?;
     Ok(IngestAcknowledgement {

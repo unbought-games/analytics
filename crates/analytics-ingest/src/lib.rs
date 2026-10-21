@@ -1,4 +1,5 @@
 //! Durable ingestion and verified journey/privacy operations.
+mod batch;
 mod ingest;
 mod journey;
 mod privacy;

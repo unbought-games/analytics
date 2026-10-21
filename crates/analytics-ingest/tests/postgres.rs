@@ -1299,3 +1299,237 @@ async fn projection_preserves_late_commits_and_bounds_large_payload_batches() {
         1
     );
 }
+
+#[tokio::test]
+async fn batched_writes_preserve_duplicate_conflict_order_and_mid_batch_signup() {
+    let s = state().await;
+    let (p, _) = configure(&s, CollectionProfile::Identified).await;
+    let first = event(&p, "action");
+    let duplicate = first.clone();
+    let mut conflict = first.clone();
+    conflict.context.control = Some("changed".into());
+    let mut touch = event(&p, "action");
+    touch.campaign = Some(campaign("ordered"));
+    let mut signup = event(&p, "signup");
+    signup.subject = Some(subject());
+    signup.occurred_at = touch.occurred_at;
+    let mut last = event(&p, "action");
+    last.subject = Some(subject());
+    last.touch_id = Some(touch.event_id);
+    last.collection.dropped_events = 3;
+    let mut rejected = last.clone();
+    rejected.event_id = Uuid::new_v4();
+    rejected.collection.policy_version = 99;
+    let ack = ingest_server(
+        &s,
+        &actor(),
+        IngestBatch {
+            events: vec![
+                first.clone(),
+                duplicate,
+                conflict,
+                touch.clone(),
+                signup.clone(),
+                rejected,
+                last.clone(),
+            ],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ack.results
+            .iter()
+            .map(|a| a.status.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "accepted",
+            "duplicate",
+            "conflict",
+            "accepted",
+            "accepted",
+            "rejected",
+            "accepted"
+        ]
+    );
+    assert_eq!(ack.results[0].receipt_cursor, ack.results[1].receipt_cursor);
+    let cursors: Vec<i64> = [0usize, 3, 4, 6]
+        .iter()
+        .map(|i| {
+            ack.results[*i]
+                .receipt_cursor
+                .as_ref()
+                .unwrap()
+                .parse()
+                .unwrap()
+        })
+        .collect();
+    assert!(cursors.windows(2).all(|v| v[0] < v[1]));
+    let ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT event_id FROM ingest_events ORDER BY receipt_cursor")
+            .fetch_all(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        ids,
+        vec![
+            first.event_id,
+            touch.event_id,
+            signup.event_id,
+            last.event_id
+        ]
+    );
+    let campaign: Value =
+        sqlx::query_scalar("SELECT campaign FROM ingest_acquisitions WHERE property_id=$1")
+            .bind(p.id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(campaign["utm_campaign"], "ordered");
+    let counters = status(&s, &actor(), p.id).await.unwrap();
+    assert_eq!(counters["counters"]["accepted"], "4");
+    assert_eq!(counters["counters"]["duplicate"], "1");
+    assert_eq!(counters["counters"]["conflict"], "1");
+    assert_eq!(counters["counters"]["policy_mismatch"], "1");
+    assert_eq!(counters["counters"]["client_reported_dropped"], "3");
+}
+
+#[tokio::test]
+async fn batch_quota_reservation_preserves_partial_capacity_without_regranting() {
+    let s = state().await;
+    let (p, t) = configure(&s, CollectionProfile::Minimal).await;
+    sqlx::query("INSERT INTO ingest_quotas(property_id,bucket,window_start,events) VALUES($1,'public',date_trunc('minute',now()),5998)").bind(p.id).execute(&s.db).await.unwrap();
+    let ack = browser(&s, &t, (0..5).map(|_| event(&p, "page_view")).collect()).await;
+    assert_eq!(
+        ack["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["status"] == "accepted")
+            .count(),
+        2
+    );
+    assert_eq!(
+        ack["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["code"] == "rate_limited")
+            .count(),
+        3
+    );
+    let next = browser(&s, &t, (0..100).map(|_| event(&p, "page_view")).collect()).await;
+    assert!(
+        next["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["code"] == "rate_limited")
+    );
+    let counters = status(&s, &actor(), p.id).await.unwrap();
+    assert_eq!(counters["counters"]["accepted"], "2");
+    assert_eq!(counters["counters"]["rate_limited"], "103");
+}
+
+#[tokio::test]
+async fn bulk_database_failure_never_acknowledges_partial_writes() {
+    let s = state().await;
+    let (p, _) = configure(&s, CollectionProfile::Minimal).await;
+    sqlx::query("ALTER TABLE ingest_events ADD CONSTRAINT synthetic_write_failure CHECK(payload#>>'{context,control}' IS DISTINCT FROM 'synthetic-database-failure')").execute(&s.db).await.unwrap();
+    let first = event(&p, "action");
+    let mut second = event(&p, "action");
+    second.context.control = Some("synthetic-database-failure".into());
+    let batch = IngestBatch {
+        events: vec![first, second],
+    };
+    assert!(ingest_server(&s, &actor(), batch.clone()).await.is_err());
+    for table in [
+        "ingest_events",
+        "ingest_receipts",
+        "ingest_counters",
+        "ingest_quotas",
+    ] {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM {table}"))
+                .fetch_one(&s.db)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    sqlx::query("ALTER TABLE ingest_events DROP CONSTRAINT synthetic_write_failure")
+        .execute(&s.db)
+        .await
+        .unwrap();
+    let ack = ingest_server(&s, &actor(), batch).await.unwrap();
+    assert!(
+        ack.results
+            .iter()
+            .all(|r| r.status == "accepted" && r.receipt_cursor.is_some())
+    );
+}
+
+struct PoolAuthorization {
+    pool: PgPool,
+    calls: std::sync::atomic::AtomicUsize,
+}
+#[async_trait]
+impl Authorization for PoolAuthorization {
+    async fn authenticate(&self, _: &str) -> ApiResult<AuthContext> {
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(actor())
+    }
+    async fn authorize(&self, _: &AuthContext, _: &str, _: &Resource) -> ApiResult<()> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn grants(&self, _: &AuthContext) -> ApiResult<Vec<Grant>> {
+        Ok(vec![])
+    }
+}
+#[tokio::test]
+async fn authorization_uses_unique_scopes_before_single_connection_transaction() {
+    let s = state().await;
+    let (p, _) = configure(&s, CollectionProfile::Minimal).await;
+    let schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    let url = std::env::var("INGEST_TEST_DATABASE_URL").unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(move |connection, _| {
+            let schema = schema.clone();
+            Box::pin(async move {
+                sqlx::query(&format!("SET search_path TO {schema}"))
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .unwrap();
+    let auth = Arc::new(PoolAuthorization {
+        pool: pool.clone(),
+        calls: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let state = AppState {
+        db: pool,
+        auth: auth.clone(),
+        config: s.config.clone(),
+    };
+    let batch = IngestBatch {
+        events: (0..20).map(|_| event(&p, "action")).collect(),
+    };
+    let ack = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        ingest_server(&state, &actor(), batch),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(ack.results.iter().all(|r| r.status == "accepted"));
+    assert_eq!(auth.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
