@@ -152,7 +152,16 @@
     "database": "postgres17.7 containers;1CPU/512MiB each",
     "rss_method": "ps RSS bytes sampled every50ms; may miss shorter peaks",
     "source_impact": "pg_stat_database counters include fixture polling; cumulative stats may lag",
-    "outage": "separate actual browser transactional signup/outbox test; not inferred from throughput"
+    "outage": "separate actual browser transactional signup/outbox test; not inferred from throughput",
+    "source_tree_hashes": {
+      "crates": "1cba66de9e9ef82ea3c9369579aad24c790faf44",
+      "migrations": "50d4aac27d550106f2954fbaf94c5f1e6b2c18e9",
+      "Cargo.lock": "5f08f25f108024bddd2a37c4bab77743b375f64f",
+      "packages/browser": "b82c1d4fc6307ce44faf92c1754828d18345deb2",
+      "examples/producers": "a0099b02953482fa59825bb023e31fbbac965172",
+      "tests/acceptance": "12161ce7bfd3027ea546f724f9021fc25d6cd536",
+      "benchmarks": "bd2d7d542552561045415d87d807b09b9966e5ca"
+    }
   },
   "budget_evaluation": {
     "normal_p95": false,

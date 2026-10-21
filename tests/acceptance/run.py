@@ -61,7 +61,7 @@ def main():
             code = 127
         results.append({"command": command, "exit_code": code, "elapsed_seconds": time.monotonic() - start})
     passed = not missing and all(row["exit_code"] == 0 for row in results)
-    evidence = {"recorded_at": datetime.now(timezone.utc).isoformat(), "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)), "suite": args.suite, "passed": passed, "missing_prerequisites": missing, "commands": results, "acceptance_complete": False}
+    evidence = {"recorded_at": datetime.now(timezone.utc).isoformat(), "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)), "source_tree_hashes": {part: subprocess.check_output(["git", "rev-parse", "HEAD:" + part], cwd=ROOT, text=True).strip() for part in ["crates", "migrations", "Cargo.lock", "packages/browser", "examples/producers", "tests/acceptance", "contracts"]}, "suite": args.suite, "passed": passed, "missing_prerequisites": missing, "commands": results, "acceptance_complete": False}
     # Suite-level success is deliberately distinct from A01–A14 acceptance signoff.
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(evidence, indent=2) + "\n")
