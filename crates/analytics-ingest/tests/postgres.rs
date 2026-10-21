@@ -712,6 +712,13 @@ async fn transactional_outbox_rollback_outage_and_retry_recovery() {
         .await
         .unwrap();
     tx.rollback().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM synthetic_commands")
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        0
+    );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM analytics_outbox")
         .fetch_one(&s.db)
         .await
@@ -725,7 +732,7 @@ async fn transactional_outbox_rollback_outage_and_retry_recovery() {
     producer::dispatch(&s.db, "http://127.0.0.1:1", "synthetic-test-server")
         .await
         .unwrap();
-    let row = sqlx::query("SELECT delivered_at,last_error_code FROM analytics_outbox")
+    let row = sqlx::query("SELECT c.analytics_delivered_at AS delivered_at,o.last_error_code FROM analytics_outbox o JOIN synthetic_commands c ON c.command_id=o.event_id")
         .fetch_one(&s.db)
         .await
         .unwrap();
@@ -749,18 +756,16 @@ async fn transactional_outbox_rollback_outage_and_retry_recovery() {
         .await
         .unwrap();
     let delivered: bool =
-        sqlx::query_scalar("SELECT delivered_at IS NOT NULL FROM analytics_outbox")
+        sqlx::query_scalar("SELECT analytics_delivered_at IS NOT NULL FROM synthetic_commands")
             .fetch_one(&s.db)
             .await
             .unwrap();
     assert!(delivered);
     // Simulate crash after remote commit but before local delivery marking.
-    sqlx::query(
-        "UPDATE analytics_outbox SET delivered_at=NULL,available_at=now(),lease_until=NULL",
-    )
-    .execute(&s.db)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE synthetic_commands SET analytics_delivered_at=NULL")
+        .execute(&s.db)
+        .await
+        .unwrap();
     producer::dispatch(&s.db, &endpoint, "synthetic-test-server")
         .await
         .unwrap();
@@ -1090,5 +1095,207 @@ async fn policy_change_retry_partial_ack_revocation_and_attribution_boundaries()
         .await
         .0,
         401
+    );
+}
+
+#[tokio::test]
+async fn public_quota_cannot_consume_authoritative_delivery_budget() {
+    let s = state().await;
+    let (p, token) = configure(&s, CollectionProfile::Identified).await;
+    browser(&s, &token, vec![event(&p, "page_view")]).await;
+    sqlx::query("UPDATE ingest_quotas SET window_start=date_trunc('minute',now()),events=6000 WHERE property_id=$1 AND bucket='public'").bind(p.id).execute(&s.db).await.unwrap();
+    assert_eq!(
+        browser(&s, &token, vec![event(&p, "page_view")]).await["results"][0]["code"],
+        "rate_limited"
+    );
+    accepted(&s, event(&p, "action")).await;
+    let used: i32 = sqlx::query_scalar(
+        "SELECT events FROM ingest_quotas WHERE property_id=$1 AND bucket='server'",
+    )
+    .bind(p.id)
+    .fetch_one(&s.db)
+    .await
+    .unwrap();
+    assert_eq!(used, 1);
+}
+
+#[tokio::test]
+async fn journal_projects_bounded_queue_and_recovers_more_than_capacity() {
+    let s = state().await;
+    let (p, _) = configure(&s, CollectionProfile::Identified).await;
+    sqlx::raw_sql(include_str!("../../../examples/producers/outbox.sql"))
+        .execute(&s.db)
+        .await
+        .unwrap();
+    let first = event(&p, "action");
+    let player = Uuid::new_v4();
+    let mut tx = s.db.begin().await.unwrap();
+    for i in 0..10000 {
+        let mut e = first.clone();
+        if i > 0 {
+            e.event_id = Uuid::new_v4();
+        }
+        producer::capture(&mut tx, &e, player).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+    while producer::project(&s.db).await.unwrap() > 0 {}
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM analytics_outbox")
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        10000
+    );
+    producer::dispatch(&s.db, "http://127.0.0.1:1", "synthetic-test-server")
+        .await
+        .unwrap();
+    // New business facts commit despite a completely full queue and failed delivery.
+    let mut tx = s.db.begin().await.unwrap();
+    for _ in 0..25 {
+        producer::capture(&mut tx, &event(&p, "action"), player)
+            .await
+            .unwrap();
+    }
+    tx.commit().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM synthetic_commands")
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        10025
+    );
+    assert_eq!(producer::project(&s.db).await.unwrap(), 0);
+    // Queue loss is recoverable from original retained facts without a cursor gap.
+    sqlx::query("DELETE FROM analytics_outbox")
+        .execute(&s.db)
+        .await
+        .unwrap();
+    // Model an uncertain ACK: receiver already committed this event; journal has no ACK.
+    accepted(&s, first).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let app = IngestionExtension.router().with_state(s.clone());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut sent = 0;
+    loop {
+        let batch = producer::dispatch(&s.db, &endpoint, "synthetic-test-server")
+            .await
+            .unwrap();
+        assert!(batch <= 50);
+        let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM analytics_outbox")
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+        assert!(queued <= 10000);
+        if batch == 0 {
+            break;
+        }
+        sent += batch;
+    }
+    assert_eq!(sent, 10025);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ingest_events")
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        10025
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM synthetic_commands WHERE analytics_delivered_at IS NOT NULL"
+        )
+        .fetch_one(&s.db)
+        .await
+        .unwrap(),
+        10025
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM analytics_outbox")
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        0
+    );
+    // Independent business-history retention explicitly reports unavailable facts.
+    let mut tx = s.db.begin().await.unwrap();
+    let lost = event(&p, "action");
+    producer::capture(&mut tx, &lost, player).await.unwrap();
+    tx.commit().await.unwrap();
+    sqlx::query(
+        "UPDATE synthetic_commands SET applied_at=now()-interval '2 days' WHERE command_id=$1",
+    )
+    .bind(lost.event_id)
+    .execute(&s.db)
+    .await
+    .unwrap();
+    producer::project(&s.db).await.unwrap();
+    assert_eq!(
+        producer::prune_journal(&s.db, Utc::now() - Duration::days(1))
+            .await
+            .unwrap(),
+        (1, 1)
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT sum(event_count)::bigint FROM producer_coverage_gaps")
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM analytics_outbox")
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        0
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn projection_preserves_late_commits_and_bounds_large_payload_batches() {
+    let s = state().await;
+    let (p, _) = configure(&s, CollectionProfile::Identified).await;
+    sqlx::raw_sql(include_str!("../../../examples/producers/outbox.sql"))
+        .execute(&s.db)
+        .await
+        .unwrap();
+    let mut earlier = s.db.begin().await.unwrap();
+    let early = event(&p, "action");
+    producer::capture(&mut earlier, &early, Uuid::new_v4())
+        .await
+        .unwrap();
+    let mut later = s.db.begin().await.unwrap();
+    for _ in 0..6 {
+        let mut e = event(&p, "action");
+        e.properties
+            .insert("synthetic_padding".into(), json!("x".repeat(50000)));
+        producer::capture(&mut later, &e, Uuid::new_v4())
+            .await
+            .unwrap();
+    }
+    later.commit().await.unwrap();
+    assert_eq!(producer::project(&s.db).await.unwrap(), 6);
+    earlier.commit().await.unwrap();
+    assert_eq!(producer::project(&s.db).await.unwrap(), 1);
+    let mut tx = s.db.begin().await.unwrap();
+    let rows = sqlx::query(include_str!("../../../examples/producers/claim.sql"))
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+    assert!(rows.len() < 7);
+    let total: usize = rows
+        .iter()
+        .map(|r| r.get::<Value, _>("payload").to_string().len() + 1)
+        .sum();
+    assert!(total <= 240000);
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM analytics_outbox WHERE event_id=$1")
+            .bind(early.event_id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap(),
+        1
     );
 }

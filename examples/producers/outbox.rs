@@ -10,37 +10,53 @@ pub async fn capture(
     event: &EventEnvelope,
     player: uuid::Uuid,
 ) -> Result<(), Box<dyn Error>> {
-    // Serialize admission to reserve bounded durable capacity before game success.
-    sqlx::query("SELECT pg_advisory_xact_lock(935792)")
-        .execute(&mut **tx)
-        .await?;
-    let pending: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM analytics_outbox WHERE delivered_at IS NULL")
-            .fetch_one(&mut **tx)
-            .await?;
-    if pending >= 10000 {
-        return Err("outbox capacity exhausted; command must not commit".into());
-    }
-    sqlx::query("INSERT INTO synthetic_commands(command_id,player_id) VALUES($1,$2)")
-        .bind(event.event_id)
-        .bind(player)
-        .execute(&mut **tx)
-        .await?;
-    sqlx::query("INSERT INTO analytics_outbox(event_id,payload) VALUES($1,$2)")
-        .bind(event.event_id)
-        .bind(serde_json::to_value(event)?)
-        .execute(&mut **tx)
-        .await?;
-    Ok(()) // caller commits application change and outbox together
+    // The event envelope is the synthetic command journal's original fact.
+    // This path has no analytics queue read, queue lock, or external operation.
+    sqlx::query(
+        "INSERT INTO synthetic_commands(command_id,player_id,event_payload) VALUES($1,$2,$3)",
+    )
+    .bind(event.event_id)
+    .bind(player)
+    .bind(serde_json::to_value(event)?)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
+/// Materialize at most 100 journal facts, keeping the entire delivery queue <=10k.
+pub async fn project(pool: &PgPool) -> Result<u64, Box<dyn Error>> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(935792)")
+        .execute(&mut *tx)
+        .await?;
+    let inserted = sqlx::query(include_str!("project.sql"))
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    tx.commit().await?;
+    Ok(inserted)
+}
+/// Call only as explicit application history maintenance, never to make queue space.
+pub async fn prune_journal(
+    pool: &PgPool,
+    before: chrono::DateTime<chrono::Utc>,
+) -> Result<(i64, i64), Box<dyn Error>> {
+    let row = sqlx::query(include_str!("retention.sql"))
+        .bind(before)
+        .fetch_one(pool)
+        .await?;
+    Ok((row.get("removed"), row.get("unavailable_events")))
+}
+
 pub async fn dispatch(
     pool: &PgPool,
     endpoint: &str,
     credential: &str,
 ) -> Result<usize, Box<dyn Error>> {
+    project(pool).await?;
     let mut tx = pool.begin().await?;
-    let rows=sqlx::query("WITH pending AS (SELECT event_id FROM analytics_outbox WHERE delivered_at IS NULL AND NOT quarantined AND available_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY available_at,event_id LIMIT 50 FOR UPDATE SKIP LOCKED) UPDATE analytics_outbox o SET lease_until=now()+interval '60 seconds',attempts=attempts+1 FROM pending p WHERE o.event_id=p.event_id RETURNING o.event_id,o.payload,o.attempts")
-        .fetch_all(&mut *tx).await?;
+    let rows = sqlx::query(include_str!("claim.sql"))
+        .fetch_all(&mut *tx)
+        .await?;
     tx.commit().await?;
     if rows.is_empty() {
         return Ok(0);
@@ -73,16 +89,22 @@ pub async fn dispatch(
             .map(|a| a.results.iter().filter(|a| a.event_id == id).collect())
             .unwrap_or_default();
         if matches.len() == 1 && matches!(matches[0].status.as_str(), "accepted" | "duplicate") {
-            sqlx::query("UPDATE analytics_outbox SET delivered_at=now(),lease_until=NULL,last_error_code=NULL WHERE event_id=$1").bind(id).execute(pool).await?;
+            sqlx::query(include_str!("acknowledge.sql"))
+                .bind(id)
+                .execute(pool)
+                .await?;
         } else if matches.len() == 1
             && matches!(matches[0].status.as_str(), "conflict" | "rejected")
             && matches[0].code.as_deref() != Some("rate_limited")
         {
-            sqlx::query("UPDATE analytics_outbox SET quarantined=true,lease_until=NULL,last_error_code='rejected_requires_review' WHERE event_id=$1").bind(id).execute(pool).await?;
+            sqlx::query(include_str!("quarantine.sql"))
+                .bind(id)
+                .execute(pool)
+                .await?;
         } else {
             let attempts: i32 = row.get("attempts");
             let backoff = 2i32.pow(attempts.clamp(1, 8) as u32).min(300);
-            sqlx::query("UPDATE analytics_outbox SET lease_until=NULL,available_at=now()+make_interval(secs=>$2),last_error_code='transport_unavailable' WHERE event_id=$1 AND delivered_at IS NULL").bind(id).bind(backoff).execute(pool).await?;
+            sqlx::query("UPDATE analytics_outbox SET lease_until=NULL,available_at=now()+make_interval(secs=>$2),last_error_code='transport_unavailable' WHERE event_id=$1").bind(id).bind(backoff).execute(pool).await?;
         }
     }
     Ok(rows.len())

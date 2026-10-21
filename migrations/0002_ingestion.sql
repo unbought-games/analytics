@@ -84,7 +84,8 @@ CREATE TABLE ingest_counters (
  PRIMARY KEY(property_id,code)
 );
 CREATE TABLE ingest_quotas (
- property_id uuid PRIMARY KEY,window_start timestamptz NOT NULL,events integer NOT NULL
+ property_id uuid NOT NULL,bucket text NOT NULL CHECK(bucket IN ('public','server')),
+ window_start timestamptz NOT NULL,events integer NOT NULL,PRIMARY KEY(property_id,bucket)
 );
 CREATE TABLE ingest_audit (
  id bigserial PRIMARY KEY,principal_id uuid NOT NULL,delegated_by uuid,property_id uuid NOT NULL,

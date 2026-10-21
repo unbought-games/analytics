@@ -220,10 +220,18 @@ pub(crate) fn done() -> Value {
     json!({"ok":true})
 }
 
-pub(crate) async fn capability_quota(db: &mut PgConnection, property: Uuid) -> ApiResult<()> {
-    let used:i32=sqlx::query_scalar("INSERT INTO ingest_quotas(property_id,window_start,events) VALUES($1,date_trunc('minute',clock_timestamp()),1) ON CONFLICT(property_id) DO UPDATE SET events=CASE WHEN ingest_quotas.window_start=date_trunc('minute',clock_timestamp()) THEN LEAST(ingest_quotas.events+1,6001) ELSE 1 END,window_start=date_trunc('minute',clock_timestamp()) RETURNING events")
-        .bind(property).fetch_one(db).await?;
-    if used > 6000 {
+pub(crate) async fn quota(db: &mut PgConnection, property: Uuid, browser: bool) -> ApiResult<bool> {
+    let limit = if browser { 6000i32 } else { 60000i32 };
+    let used:i32=sqlx::query_scalar("INSERT INTO ingest_quotas(property_id,bucket,window_start,events) VALUES($1,$2,date_trunc('minute',clock_timestamp()),1) ON CONFLICT(property_id,bucket) DO UPDATE SET events=CASE WHEN ingest_quotas.window_start=date_trunc('minute',clock_timestamp()) THEN LEAST(ingest_quotas.events+1,$3+1) ELSE 1 END,window_start=date_trunc('minute',clock_timestamp()) RETURNING events")
+        .bind(property).bind(if browser {"public"}else{"server"}).bind(limit).fetch_one(db).await?;
+    Ok(used <= limit)
+}
+pub(crate) async fn capability_quota(
+    db: &mut PgConnection,
+    property: Uuid,
+    browser: bool,
+) -> ApiResult<()> {
+    if !quota(db, property, browser).await? {
         return Err(ApiError::new(
             axum::http::StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
