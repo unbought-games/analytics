@@ -2330,6 +2330,55 @@
               "format": "uuid",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Safe scoped configuration/status"
+          }
+        },
+        "security": [
+          {
+            "PropertyToken": []
+          }
+        ]
+      },
+      "post": {
+        "description": "Read-only configuration lookup. Uses the property_id query parameter and X-Property-Token/Origin headers; no request body and no collection writes.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "property_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2360,6 +2409,55 @@
             "required": true,
             "schema": {
               "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Safe scoped configuration/status"
+          }
+        },
+        "security": [
+          {
+            "PropertyToken": []
+          }
+        ]
+      },
+      "post": {
+        "description": "Read-only configuration lookup. Uses the property_id query parameter and X-Property-Token/Origin headers; no request body and no collection writes.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "property_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
               "type": "string"
             }
           }
