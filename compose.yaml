@@ -36,9 +36,9 @@ services:
     cpus: 1.0
   fixtures:
     build: ./tests/acceptance/fixtures
-    ports: ["127.0.0.1::8081"]
+    ports: ["127.0.0.1::8081", "127.0.0.1::8080"]
     environment:
-      OIDC_ISSUER: http://fixtures:8081
+      OIDC_ISSUER: http://127.0.0.1:8081
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz',timeout=2)"]
       interval: 2s
@@ -53,18 +53,19 @@ services:
   engine:
     profiles: [engine]
     build: .
+    image: ${ANALYTICS_TEST_IMAGE:?run stack.py first}
     user: "${ANALYTICS_UID:-65532}:${ANALYTICS_GID:-65532}"
     environment:
       ANALYTICS_DATABASE_URL_FILE: /run/secrets/engine_database_url
       ANALYTICS_PUBLIC_BASE_URL: ${ANALYTICS_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
       ANALYTICS_SECRET_DIRECTORY: /run/analytics/secrets
       ANALYTICS_EXPORT_DIRECTORY: /var/lib/analytics/exports
-      ANALYTICS_OIDC_ISSUER: http://fixtures:8081
+      ANALYTICS_OIDC_ISSUER: http://127.0.0.1:8081
     secrets: [engine_database_url]
+    network_mode: service:fixtures
     volumes:
       - ${ANALYTICS_STACK_DIR}/exports:/var/lib/analytics/exports
       - ${ANALYTICS_STACK_DIR}/secrets:/run/analytics/secrets
-    ports: ["127.0.0.1::8080"]
     depends_on:
       postgres: {condition: service_healthy}
       fixtures: {condition: service_healthy}
@@ -79,7 +80,20 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 512m
     cpus: 2.0
+  migrate:
+    profiles: [engine]
+    image: ${ANALYTICS_TEST_IMAGE:?run stack.py first}
+    user: "${ANALYTICS_UID:-65532}:${ANALYTICS_GID:-65532}"
+    environment:
+      ANALYTICS_DATABASE_URL_FILE: /run/secrets/engine_migration_url
+    secrets: [engine_migration_url]
+    command: [migrate]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
 secrets:
+  engine_migration_url:
+    file: ${ANALYTICS_STACK_DIR:?run stack.py first}/engine_migration_url
   engine_database_url:
     file: ${ANALYTICS_STACK_DIR:?run stack.py first}/engine_database_url
   database_password:

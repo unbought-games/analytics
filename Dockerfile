@@ -3,6 +3,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY migrations ./migrations
+COPY examples/producers/outbox.rs ./examples/producers/outbox.rs
 RUN cargo build --locked --release --package analytics-server
 
 FROM debian:bookworm-slim

@@ -6,6 +6,9 @@
 !crates/**
 !migrations/
 !migrations/**
+!examples/
+!examples/producers/
+!examples/producers/outbox.rs
 # Defense in depth for ignored/private files inside allowed directories.
 **/.git
 **/.env*

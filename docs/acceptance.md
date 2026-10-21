@@ -17,6 +17,14 @@ These commands were run on the foundation contract checkpoint `3b752ee2d24819444
 
 The analysis checkpoint `9a42d20855ac14bd28b222ecb122193d027e7847` was imported separately. `python3 -m unittest discover -s examples/analysis -p 'test_*.py' -v` ran all 32 tests successfully here. Actual PostgreSQL fixture loading now preserves all four datasets' rows, booleans, nested history strings and duplicate deliveries. This does not yet prove the engine query/export path. The prepared `service.py` and `export_cohorts.py` helpers will exercise that path after the service modules arrive.
 
+Additional integrated commands passed before the final full-suite run:
+
+- `python3 tests/acceptance/stack.py run -- cargo test --locked -p analytics-server -p analytics-ingest --tests`: foundation security and all then-current ingestion tests passed with real PostgreSQL, no skipped tests.
+- `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_service.py -v`: five tests passed (9.686s), covering CLI/MCP, real OIDC code flow, eight actual cohort exports with complete versus unknown coverage, restricted runtime database role, and complete engine database/export restore followed by fresh exports.
+- `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_container.py -v`: real release image built, migrated with separate migration credentials, bootstrapped/served with runtime credentials, and passed authenticated MCP identity/tool discovery (74.014s including build). Cleanup includes the engine profile.
+
+These are controlled synthetic results. The manufactured D180 result tests definitions and the real export pipeline; it is not a live browser retention claim. The real cross-property browser journey remains separate work below.
+
 ## Required integration matrix
 
 | ID | Required remaining evidence |
