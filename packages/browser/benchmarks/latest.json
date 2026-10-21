@@ -1,6 +1,6 @@
 {
   "formatVersion": 1,
-  "measuredAt": "2026-10-21T20:01:13.602Z",
+  "measuredAt": "2026-10-21T20:02:30.759Z",
   "platform": {
     "os": "darwin",
     "arch": "arm64",
@@ -28,36 +28,36 @@
   },
   "bundles": {
     "index.js": {
-      "minifiedBytes": 25736,
-      "gzipBytes": 8759,
-      "brotliBytes": 7808
+      "minifiedBytes": 26085,
+      "gzipBytes": 8856,
+      "brotliBytes": 7903
     },
     "index.cjs": {
-      "minifiedBytes": 26208,
-      "gzipBytes": 8969,
-      "brotliBytes": 8000
+      "minifiedBytes": 26558,
+      "gzipBytes": 9073,
+      "brotliBytes": 8100
     },
     "analytics.global.js": {
-      "minifiedBytes": 26225,
-      "gzipBytes": 8976,
-      "brotliBytes": 8005
+      "minifiedBytes": 26575,
+      "gzipBytes": 9081,
+      "brotliBytes": 8108
     }
   },
   "initializationMs": {
     "syncP50": 0.10000002384185791,
-    "syncP95": 0.19999992847442627,
-    "readyP50": 0.6999999284744263,
-    "readyP95": 0.9000000953674316
+    "syncP95": 0.30000007152557373,
+    "readyP50": 1.8000000715255737,
+    "readyP95": 7.200000047683716
   },
   "interactionMs": {
     "p50": 0,
     "p95": 0.10000002384185791,
-    "burstTotal": 95.79999995231628,
-    "burstAmortized": 0.009579999995231629
+    "burstTotal": 99.90000009536743,
+    "burstAmortized": 0.009990000009536744
   },
   "normal": {
-    "runtimeId": "aa6cf748-2158-47d6-9fd6-3c6588b60b07",
-    "coverageStartedAt": "2026-10-21T20:01:13.356Z",
+    "runtimeId": "77f1efc6-d03f-4b18-94b3-889048b1d7cc",
+    "coverageStartedAt": "2026-10-21T20:02:30.410Z",
     "controlFailures": 0,
     "produced": 56,
     "accepted": 56,
@@ -82,8 +82,8 @@
     "storageUnavailable": false
   },
   "burst": {
-    "runtimeId": "b60f3566-77c1-413d-901b-4bd3f70dca8e",
-    "coverageStartedAt": "2026-10-21T20:01:13.375Z",
+    "runtimeId": "334ff251-cc2c-4092-8069-83ad8fc780b0",
+    "coverageStartedAt": "2026-10-21T20:02:30.457Z",
     "controlFailures": 0,
     "produced": 10001,
     "accepted": 0,
@@ -108,8 +108,8 @@
     "storageUnavailable": false
   },
   "outage": {
-    "runtimeId": "b60f3566-77c1-413d-901b-4bd3f70dca8e",
-    "coverageStartedAt": "2026-10-21T20:01:13.375Z",
+    "runtimeId": "334ff251-cc2c-4092-8069-83ad8fc780b0",
+    "coverageStartedAt": "2026-10-21T20:02:30.457Z",
     "controlFailures": 0,
     "produced": 10001,
     "accepted": 0,
@@ -134,10 +134,10 @@
     "storageUnavailable": false
   },
   "heapBytes": {
-    "before": 1076144,
-    "beforeGC": 4190436,
-    "retainedAfterGC": 1256276,
-    "retainedDelta": 180132,
+    "before": 1077488,
+    "beforeGC": 4180068,
+    "retainedAfterGC": 1261884,
+    "retainedDelta": 184396,
     "note": "Chromium total page JS heap; allocator/GC measurement, not a portable exact SDK heap bound"
   }
 }
