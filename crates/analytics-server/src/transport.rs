@@ -22,6 +22,23 @@ pub fn router(
     extensions: Vec<Arc<dyn Extension>>,
     oidc: Option<OidcVerifier>,
 ) -> Router {
+    router_with_admission(
+        state,
+        extensions,
+        oidc,
+        crate::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
+    )
+    .expect("default request admission limit is valid")
+}
+
+/// All clones of the returned router share one fail-fast admission budget.
+pub fn router_with_admission(
+    state: AppState,
+    extensions: Vec<Arc<dyn Extension>>,
+    oidc: Option<OidcVerifier>,
+    max_in_flight: usize,
+) -> ApiResult<Router> {
+    let admission = crate::admission::Admission::new(max_in_flight)?;
     let mut registered = std::collections::HashSet::from([
         "identity".to_string(),
         "status".to_string(),
@@ -67,10 +84,15 @@ pub fn router(
         )
         .route("/oauth/authorize", get(authorize_redirect))
         .with_state(transport);
-    app.with_state(state.clone())
+    Ok(app
+        .with_state(state.clone())
         .merge(extra)
         .layer(DefaultBodyLimit::max(state.config.max_body_bytes))
-        .layer(middleware::from_fn_with_state(state, security_headers))
+        .layer(middleware::from_fn_with_state(
+            admission,
+            crate::admission::admit,
+        ))
+        .layer(middleware::from_fn_with_state(state, security_headers)))
 }
 async fn security_headers(State(state): State<AppState>, request: Request, next: Next) -> Response {
     if let Some(origin) = request.headers().get(header::ORIGIN)

@@ -139,7 +139,14 @@ async fn run() -> ApiResult<()> {
                 Arc::new(analytics_query::QueryExtension),
                 Arc::new(analytics_ingest::IngestionExtension),
             ];
-            let app = analytics_server::router(state, extensions, oidc);
+            let max_in_flight = env("ANALYTICS_MAX_IN_FLIGHT_REQUESTS", "64")
+                .parse::<usize>()
+                .map_err(|_| {
+                    ApiError::bad_request(
+                        "ANALYTICS_MAX_IN_FLIGHT_REQUESTS must be an integer in 1..4096",
+                    )
+                })?;
+            let app = analytics_server::router_with_admission(state, extensions, oidc, max_in_flight)?;
             let listener = tokio::net::TcpListener::bind(bind)
                 .await
                 .map_err(|_| ApiError::internal())?;
