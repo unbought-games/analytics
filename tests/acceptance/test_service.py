@@ -117,7 +117,7 @@ class ServiceTests(unittest.TestCase):
             return compose(self.service.state, "exec", "-T", "postgres", "psql", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-U", "analytics_runtime", "-d", "analytics", input=statement, text=True, capture_output=True).stdout.strip()
         self.assertEqual(sql("SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=current_user;"), "f")
         self.assertEqual(sql("SELECT current_user;"), "analytics_runtime")
-        for statement in ["CREATE SCHEMA forbidden;", "CREATE ROLE forbidden;", "CREATE DATABASE forbidden;", "ALTER TABLE principals ADD COLUMN forbidden text;"]:
+        for statement in ["CREATE SCHEMA forbidden;", "CREATE ROLE forbidden;", "CREATE DATABASE forbidden;", "ALTER TABLE principals ADD COLUMN forbidden text;", "UPDATE _sqlx_migrations SET success=false;"]:
             with self.assertRaises(subprocess.CalledProcessError):
                 sql(statement)
         self.assertTrue(self.service.client.tool("status")["ready"])

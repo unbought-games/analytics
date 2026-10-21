@@ -30,6 +30,8 @@ def main():
             commands.append(["cargo", "test", "--locked", "-p", "analytics-server", "--test", "independent_review", "--", "--ignored", "--nocapture"])
             commands.append(["cargo", "build", "--locked", "-p", "analytics-server"])
             commands.append(["cargo", "build", "--locked", "-p", "analytics-ingest", "--example", "outbox"])
+            commands.append(["npm", "--prefix", "examples/producers", "run", "typecheck"])
+            commands.append(["npm", "--prefix", "examples/producers", "test"])
             commands.append([python, "-m", "unittest", "discover", "-s", "examples/analysis", "-p", "test_*.py", "-v"])
             if (ROOT / "package.json").is_file():
                 commands.append(["npm", "run", "test:browser"])

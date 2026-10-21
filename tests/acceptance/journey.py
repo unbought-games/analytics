@@ -92,7 +92,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA live TO synthetic_reader;''')
         else:
             actor = "human" if kind == "action" else "scheduled"
             fact = f"INSERT INTO live.activity VALUES ({literal(event['event_id'])},'synthetic-game',{literal(self.world)},{literal(self.player)},{when},{when},true,{literal(actor)},'applied','construct','9007199254740993');"
-        self.sql("BEGIN; SELECT pg_advisory_xact_lock(935792); " + fact + f" INSERT INTO analytics_outbox(event_id,payload) VALUES ({literal(event['event_id'])},{literal(event)}); " + ("ROLLBACK;" if rollback else "COMMIT;"))
+        self.sql("BEGIN; " + fact + f" INSERT INTO synthetic_commands(command_id,player_id,event_payload) VALUES ({literal(event['event_id'])},{literal(self.player)},{literal(event)}); " + ("ROLLBACK;" if rollback else "COMMIT;"))
         if not rollback:
             self.events[kind] = event
         return {"committed": not rollback, "event_id": event["event_id"], "local_account_id": self.account if kind == "signup" else None}
@@ -101,7 +101,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA live TO synthetic_reader;''')
         result = subprocess.run([str(ROOT / "target/debug/examples/outbox")], env=self.producer_env, cwd=ROOT, capture_output=True)
         if result.returncode:
             raise RuntimeError("synthetic outbox dispatcher failed")
-        return self.sql("SELECT count(*) FROM analytics_outbox WHERE delivered_at IS NULL;")
+        return self.sql("SELECT count(*) FROM synthetic_commands WHERE analytics_delivered_at IS NULL;")
 
     def link(self, kind):
         event = self.events[kind]

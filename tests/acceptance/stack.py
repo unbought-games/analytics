@@ -98,6 +98,7 @@ def environment(state):
         DATABASE_URL=f"postgres://analytics_migration:{password}@{endpoint(state, 'postgres', 5432)}/analytics",
         INGEST_TEST_DATABASE_URL=host_dsn.read_text(),
         REVIEW_DATABASE_URL=host_dsn.read_text(),
+        PRODUCER_TEST_DATABASE_URL=host_dsn.read_text(),
         QUERY_TEST_DATABASE_URL=host_dsn.read_text(),
         TEST_DATABASE_URL=f"postgres://analytics_migration:{password}@{endpoint(state, 'postgres', 5432)}/analytics",
         TEST_SOURCE_DATABASE_URL=f"postgres://synthetic_reader:{source_password}@{endpoint(state, 'sources', 5432)}/synthetic",
@@ -107,7 +108,7 @@ def environment(state):
 
 
 def grant_runtime(state, database="analytics"):
-    compose(state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", database, "-v", "ON_ERROR_STOP=1", input="GRANT USAGE ON SCHEMA public TO analytics_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO analytics_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO analytics_runtime;", text=True, stdout=subprocess.DEVNULL)
+    compose(state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", database, "-v", "ON_ERROR_STOP=1", input="GRANT USAGE ON SCHEMA public TO analytics_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO analytics_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO analytics_runtime; REVOKE INSERT,UPDATE,DELETE ON _sqlx_migrations FROM analytics_runtime;", text=True, stdout=subprocess.DEVNULL)
 
 
 def start_engine(state):

@@ -26,7 +26,9 @@ jobs:
       - name: Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt && rustup default 1.99.0
       - name: Install browser dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm --prefix examples/producers ci --ignore-scripts
       - name: Install real browser
         run: npx playwright install --with-deps chromium
       - name: Build and static checks
