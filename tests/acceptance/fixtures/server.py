@@ -109,8 +109,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/0/"):
             if not self.headers.get("Authorization", "").startswith("Bearer "):
                 return self.reply(401, {"detail": "fixture bearer required"})
-            allowed = ("/api/0/organizations/synthetic/issues/", "/api/0/projects/synthetic/game/issues/", "/api/0/projects/synthetic/game/events/", "/api/0/issues/101/events/", "/api/0/issues/101/events/event-101/", "/api/0/projects/synthetic/game/events/event-101/")
-            if path not in allowed or q.get("project", "101") != "101":
+            allowed = ("/api/0/organizations/synthetic/issues/", "/api/0/projects/synthetic/game/issues/", "/api/0/projects/synthetic/game/events/", "/api/0/issues/101/events/", "/api/0/projects/synthetic/game/events/0123456789abcdef0123456789abcdef/")
+            if path not in allowed or q.get("project", "101") not in ("101", "game"):
                 return self.reply(403, {"detail": "fixture scope denied"})
             if path.endswith("/issues/"):
                 page = q.get("cursor", "0:0:0")
@@ -120,8 +120,8 @@ class Handler(BaseHTTPRequestHandler):
                 rows = [{"id": "101" if more else "102", "title": "Synthetic failure", "count": "9007199254740993", "firstSeen": "2026-10-21T00:00:00Z", "lastSeen": "2026-10-21T00:01:00Z", "project": {"id": "101", "slug": "game"}, "release": "synthetic-v1"}]
                 link = f'<{issuer}{path}?cursor=1:0:0>; rel="next"; results="{str(more).lower()}"; cursor="1:0:0"'
                 return self.reply(200, rows, {"Link": link})
-            event = {"eventID": "event-101", "id": "event-101", "dateCreated": "2026-10-21T00:01:00Z", "environment": "test", "release": {"version": "synthetic-v1"}, "user": {"email": "private@example.invalid", "ip_address": "192.0.2.1"}, "request": {"headers": [["Authorization", "synthetic-sensitive-marker"]]}, "contexts": {"trace": {"trace_id": "synthetic-trace"}}}
-            return self.reply(200, event if path.endswith("event-101/") else [event])
+            event = {"eventID": "0123456789abcdef0123456789abcdef", "id": "0123456789abcdef0123456789abcdef", "projectID": 101, "groupID": "101", "dateCreated": "2026-10-21T00:01:00Z", "environment": "test", "release": {"version": "synthetic-v1"}, "user": {"email": "private@example.invalid", "ip_address": "192.0.2.1"}, "request": {"headers": [["Authorization", "synthetic-sensitive-marker"]]}, "contexts": {"trace": {"trace_id": "synthetic-trace"}}}
+            return self.reply(200, event if path.endswith("0123456789abcdef0123456789abcdef/") else [event])
         return self.reply(404, {"error": "not_found"})
 
     def do_POST(self):
