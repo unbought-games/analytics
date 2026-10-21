@@ -1,10 +1,10 @@
 mod admission;
-pub use admission::DEFAULT_MAX_IN_FLIGHT_REQUESTS;
+pub use admission::{AdmissionLimits, DEFAULT_MAX_IN_FLIGHT_REQUESTS};
 pub mod admin;
 pub mod auth;
 pub mod bootstrap;
 pub mod oidc;
 pub mod transport;
 pub use analytics_core::{AppState, Extension};
-pub use transport::{router, router_with_admission};
+pub use transport::{router, router_with_admission, router_with_admission_limits};
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");

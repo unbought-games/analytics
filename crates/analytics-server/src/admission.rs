@@ -1,37 +1,82 @@
-//! Fail-fast application admission, including the lifetime of streaming responses.
+//! Fail-fast application admission with independently enforced request/stream lifetimes.
 use analytics_core::{ApiError, ApiResult};
 use axum::{
     body::{Body, Bytes},
     extract::{Request, State},
-    http::{Method, StatusCode, header},
+    http::{Method, StatusCode, Version, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use http_body::{Body as HttpBody, Frame, SizeHint};
 use std::{
+    io,
     pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
+    sync::{Arc, Mutex},
+    task::{Context, Poll, Waker},
+    time::Duration,
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub const DEFAULT_MAX_IN_FLIGHT_REQUESTS: usize = 64;
 pub const MAX_IN_FLIGHT_REQUESTS: usize = 4096;
 
+#[derive(Clone, Copy, Debug)]
+pub struct AdmissionLimits {
+    pub max_in_flight: usize,
+    pub request_timeout: Duration,
+    pub stream_timeout: Duration,
+}
+impl Default for AdmissionLimits {
+    fn default() -> Self {
+        Self {
+            max_in_flight: DEFAULT_MAX_IN_FLIGHT_REQUESTS,
+            request_timeout: Duration::from_secs(30),
+            stream_timeout: Duration::from_secs(300),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Admission {
     permits: Arc<Semaphore>,
+    limits: AdmissionLimits,
 }
 impl Admission {
+    #[cfg(test)]
     pub(crate) fn new(limit: usize) -> ApiResult<Self> {
-        if !(1..=MAX_IN_FLIGHT_REQUESTS).contains(&limit) {
+        Self::with_limits(AdmissionLimits {
+            max_in_flight: limit,
+            ..Default::default()
+        })
+    }
+    pub(crate) fn with_limits(limits: AdmissionLimits) -> ApiResult<Self> {
+        if !(1..=MAX_IN_FLIGHT_REQUESTS).contains(&limits.max_in_flight) {
             return Err(ApiError::bad_request(
                 "Request admission limit must be between 1 and 4096",
             ));
         }
+        if limits.request_timeout.is_zero()
+            || limits.request_timeout > Duration::from_secs(600)
+            || limits.stream_timeout.is_zero()
+            || limits.stream_timeout > Duration::from_secs(3600)
+        {
+            return Err(ApiError::bad_request(
+                "Request timeout must be positive and at most 600s; stream timeout positive and at most 3600s",
+            ));
+        }
         Ok(Self {
-            permits: Arc::new(Semaphore::new(limit)),
+            permits: Arc::new(Semaphore::new(limits.max_in_flight)),
+            limits,
         })
+    }
+}
+
+fn close_unread_request(response: &mut Response, version: Version) {
+    if matches!(version, Version::HTTP_10 | Version::HTTP_11) {
+        response.headers_mut().insert(
+            header::CONNECTION,
+            header::HeaderValue::from_static("close"),
+        );
     }
 }
 
@@ -40,12 +85,11 @@ pub(crate) async fn admit(
     request: Request,
     next: Next,
 ) -> Response {
-    // Liveness performs no database, authorization or module work. Readiness is
-    // deliberately subject to admission because it acquires a database connection.
     if request.uri().path() == "/healthz" && matches!(*request.method(), Method::GET | Method::HEAD)
     {
         return next.run(request).await;
     }
+    let version = request.version();
     let Ok(permit) = admission.permits.try_acquire_owned() else {
         let mut response = ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -56,11 +100,26 @@ pub(crate) async fn admit(
         response
             .headers_mut()
             .insert(header::RETRY_AFTER, header::HeaderValue::from_static("1"));
+        close_unread_request(&mut response, version);
         return response;
     };
-    // Until headers exist the permit is owned by this future, so dropping a
-    // cancelled handler releases it. Then transfer ownership into the body.
-    let response = next.run(request).await;
+    // Covers body extraction, authentication, pool waits and handler execution.
+    // Cancelling the future on timeout drops the request body and local permit.
+    let response =
+        match tokio::time::timeout(admission.limits.request_timeout, next.run(request)).await {
+            Ok(response) => response,
+            Err(_) => {
+                drop(permit);
+                let mut response = ApiError::new(
+                    StatusCode::REQUEST_TIMEOUT,
+                    "request_timeout",
+                    "Request body or processing deadline exceeded",
+                )
+                .into_response();
+                close_unread_request(&mut response, version);
+                return response;
+            }
+        };
     let (parts, body) = response.into_parts();
     if body.is_end_stream() {
         drop(permit);
@@ -68,41 +127,124 @@ pub(crate) async fn admit(
     }
     Response::from_parts(
         parts,
-        Body::new(AdmittedBody {
-            inner: Box::pin(body),
-            permit: Some(permit),
-        }),
+        Body::new(AdmittedBody::new(
+            body,
+            permit,
+            admission.limits.stream_timeout,
+        )),
     )
 }
 
-struct AdmittedBody {
-    inner: Pin<Box<Body>>,
+struct StreamState {
+    inner: Option<Pin<Box<Body>>>,
     permit: Option<OwnedSemaphorePermit>,
+    waker: Option<Waker>,
+    expired: bool,
+    finished: bool,
+}
+impl StreamState {
+    fn release(&mut self) {
+        self.inner.take();
+        self.permit.take();
+        self.waker.take();
+    }
+}
+struct AdmittedBody {
+    state: Arc<Mutex<StreamState>>,
+    watchdog: tokio::task::JoinHandle<()>,
+}
+impl AdmittedBody {
+    fn new(body: Body, permit: OwnedSemaphorePermit, lifetime: Duration) -> Self {
+        let state = Arc::new(Mutex::new(StreamState {
+            inner: Some(Box::pin(body)),
+            permit: Some(permit),
+            waker: None,
+            expired: false,
+            finished: false,
+        }));
+        let deadline = tokio::time::Instant::now() + lifetime;
+        let watched = state.clone();
+        // At most one live watchdog per admitted streaming response. It owns no
+        // wait queue and releases BOTH producer/body resources and the permit,
+        // even when the HTTP transport stops polling because its reader stalls.
+        let watchdog = tokio::spawn(async move {
+            tokio::time::sleep_until(deadline).await;
+            let waker = {
+                let mut state = watched
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.finished {
+                    return;
+                }
+                state.expired = true;
+                let waker = state.waker.take();
+                state.release();
+                waker
+            };
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        });
+        Self { state, watchdog }
+    }
+}
+impl Drop for AdmittedBody {
+    fn drop(&mut self) {
+        self.watchdog.abort();
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .release();
+    }
 }
 impl HttpBody for AdmittedBody {
     type Data = Bytes;
     type Error = axum::Error;
-
     fn poll_frame(
         self: Pin<&mut Self>,
         context: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+    ) -> Poll<Option<Result<Frame<Bytes>, axum::Error>>> {
         let this = self.get_mut();
-        let frame = this.inner.as_mut().poll_frame(context);
-        if matches!(frame, Poll::Ready(None) | Poll::Ready(Some(Err(_))))
-            || this.inner.is_end_stream()
-        {
-            this.permit.take();
+        let mut state = this
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.finished {
+            return Poll::Ready(None);
+        }
+        if state.expired {
+            state.finished = true;
+            return Poll::Ready(Some(Err(axum::Error::new(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Response streaming deadline exceeded",
+            )))));
+        }
+        state.waker = Some(context.waker().clone());
+        let inner = state.inner.as_mut().expect("active stream has body");
+        let frame = inner.as_mut().poll_frame(context);
+        if matches!(frame, Poll::Ready(None) | Poll::Ready(Some(Err(_)))) || inner.is_end_stream() {
+            state.finished = true;
+            state.release();
+            this.watchdog.abort();
         }
         frame
     }
-
     fn is_end_stream(&self) -> bool {
-        self.inner.is_end_stream()
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .finished
     }
-
     fn size_hint(&self) -> SizeHint {
-        self.inner.size_hint()
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(body) = &state.inner {
+            body.size_hint()
+        } else {
+            SizeHint::default()
+        }
     }
 }
 
@@ -119,7 +261,7 @@ mod tests {
         io,
         time::{Duration, Instant},
     };
-    use tokio::sync::{Mutex, Notify, mpsc};
+    use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
     use tower::ServiceExt;
 
     fn request(method: Method, path: &str) -> Request {
@@ -242,7 +384,7 @@ mod tests {
     ) {
         let admission = Admission::new(1).unwrap();
         let (sender, receiver) = mpsc::channel(2);
-        let receiver = Arc::new(Mutex::new(Some(receiver)));
+        let receiver = Arc::new(AsyncMutex::new(Some(receiver)));
         let app = wrap(
             Router::new()
                 .route(
@@ -340,11 +482,33 @@ mod tests {
         drop(body);
     }
 
+    fn fixture_state() -> analytics_core::AppState {
+        // Admission is tested before any DB/auth work. This lazy pool is never
+        // connected; database security behavior has separate real PostgreSQL tests.
+        let db = sqlx::postgres::PgPoolOptions::new().connect_lazy_with(
+            sqlx::postgres::PgConnectOptions::new()
+                .host("127.0.0.1")
+                .port(1)
+                .username("synthetic")
+                .database("synthetic"),
+        );
+        analytics_core::AppState {
+            db: db.clone(),
+            auth: Arc::new(crate::auth::DatabaseAuthorization { db, oidc: None }),
+            config: Arc::new(analytics_core::ServiceConfig {
+                public_base_url: "http://127.0.0.1:8080".into(),
+                export_directory: "unused-fixture-exports".into(),
+                secret_directory: "unused-fixture-secrets".into(),
+                max_body_bytes: 1024,
+            }),
+        }
+    }
+
     #[tokio::test]
     async fn composed_router_shares_extension_stream_capacity_with_mcp_and_admin() {
-        use analytics_core::{AppState, AuthContext, Extension, ServiceConfig, ToolDefinition};
+        use analytics_core::{AppState, AuthContext, Extension, ToolDefinition};
         struct StreamingExtension {
-            receiver: Arc<Mutex<Option<StreamReceiver>>>,
+            receiver: Arc<AsyncMutex<Option<StreamReceiver>>>,
         }
         #[async_trait::async_trait]
         impl Extension for StreamingExtension {
@@ -378,28 +542,10 @@ mod tests {
                 Err(ApiError::bad_request("No tools on this streaming fixture"))
             }
         }
-        // Admission is tested before any DB/auth work. This lazy pool is never
-        // connected; database security behavior has separate real PostgreSQL tests.
-        let db = sqlx::postgres::PgPoolOptions::new().connect_lazy_with(
-            sqlx::postgres::PgConnectOptions::new()
-                .host("127.0.0.1")
-                .port(1)
-                .username("synthetic")
-                .database("synthetic"),
-        );
-        let state = AppState {
-            db: db.clone(),
-            auth: Arc::new(crate::auth::DatabaseAuthorization { db, oidc: None }),
-            config: Arc::new(ServiceConfig {
-                public_base_url: "http://127.0.0.1:8080".into(),
-                export_directory: "unused-fixture-exports".into(),
-                secret_directory: "unused-fixture-secrets".into(),
-                max_body_bytes: 1024,
-            }),
-        };
+        let state = fixture_state();
         let (sender, receiver) = mpsc::channel(1);
         let extension = Arc::new(StreamingExtension {
-            receiver: Arc::new(Mutex::new(Some(receiver))),
+            receiver: Arc::new(AsyncMutex::new(Some(receiver))),
         });
         let app = crate::router_with_admission(state, vec![extension], None, 1).unwrap();
         let response = app
@@ -436,10 +582,261 @@ mod tests {
         assert!(restored.headers().contains_key(header::WWW_AUTHENTICATE));
     }
 
+    #[tokio::test]
+    async fn unpolled_stream_deadline_drops_producer_and_releases_capacity() {
+        let admission = Admission::with_limits(AdmissionLimits {
+            max_in_flight: 1,
+            request_timeout: Duration::from_secs(1),
+            stream_timeout: Duration::from_millis(50),
+        })
+        .unwrap();
+        let (sender, receiver) = mpsc::channel(1);
+        let receiver = Arc::new(AsyncMutex::new(Some(receiver)));
+        let app = wrap(
+            Router::new().route(
+                "/stream",
+                get(move || {
+                    let receiver = receiver.clone();
+                    async move {
+                        Body::new(ChannelBody {
+                            receiver: receiver.lock().await.take().unwrap(),
+                        })
+                    }
+                }),
+            ),
+            admission.clone(),
+        );
+        let response = app.oneshot(request(Method::GET, "/stream")).await.unwrap();
+        assert_eq!(admission.permits.available_permits(), 0);
+        // Keep the response allocated and NEVER poll its body until after expiry.
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while admission.permits.available_permits() == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            sender.is_closed(),
+            "deadline must drop the underlying producer, not just free its slot"
+        );
+        let mut body = response.into_body();
+        assert!(
+            body.frame().await.unwrap().is_err(),
+            "expired stream must report failure, not a successful empty EOF"
+        );
+        assert!(body.frame().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn real_tcp_headers_only_mcp_requests_timeout_and_restore_all_slots() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let app = crate::router_with_admission_limits(
+            fixture_state(),
+            vec![],
+            None,
+            AdmissionLimits {
+                max_in_flight: 64,
+                request_timeout: Duration::from_secs(1),
+                stream_timeout: Duration::from_secs(1),
+            },
+        )
+        .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let mut stalled = Vec::new();
+        for _ in 0..64 {
+            let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+            socket.write_all(format!("POST /mcp HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: 1\r\n\r\n").as_bytes()).await.unwrap();
+            stalled.push(socket);
+        }
+        let client = reqwest::Client::new();
+        let base = format!("http://{address}");
+        let ping = json!({"jsonrpc":"2.0","id":1,"method":"ping"});
+        tokio::time::timeout(Duration::from_millis(500), async {
+            loop {
+                let response = client
+                    .post(format!("{base}/mcp"))
+                    .json(&ping)
+                    .send()
+                    .await
+                    .unwrap();
+                if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+                    break;
+                }
+                assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("all 64 headers-only requests should saturate admission before their deadline");
+        assert_eq!(
+            client
+                .get(format!("{base}/healthz"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        tokio::time::timeout(Duration::from_secs(3),async {
+            for mut socket in stalled {
+                let mut response=Vec::new();
+                socket.read_to_end(&mut response).await.unwrap();
+                let response=String::from_utf8(response).unwrap();
+                assert!(response.starts_with("HTTP/1.1 408"));
+                assert!(response.contains("request_timeout"));
+                assert!(response.to_lowercase().contains("connection: close"));
+            }
+        }).await.expect("slow bodies must receive bounded 408 and connection closure without sending their missing byte");
+        assert_eq!(
+            client
+                .post(format!("{base}/mcp"))
+                .json(&ping)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn real_tcp_nonreading_download_releases_producer_at_stream_deadline() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use tokio::io::AsyncWriteExt;
+        struct RepeatedBody {
+            dropped: Arc<AtomicBool>,
+            polls: Arc<AtomicUsize>,
+            chunk: Bytes,
+        }
+        impl Drop for RepeatedBody {
+            fn drop(&mut self) {
+                self.dropped.store(true, Ordering::SeqCst);
+            }
+        }
+        impl HttpBody for RepeatedBody {
+            type Data = Bytes;
+            type Error = io::Error;
+            fn poll_frame(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+            ) -> Poll<Option<Result<Frame<Bytes>, io::Error>>> {
+                self.polls.fetch_add(1, Ordering::SeqCst);
+                Poll::Ready(Some(Ok(Frame::data(self.chunk.clone()))))
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let dropped_handler = dropped.clone();
+        let polls_handler = polls.clone();
+        let entered = Arc::new(Notify::new());
+        let entered_handler = entered.clone();
+        let admission = Admission::with_limits(AdmissionLimits {
+            max_in_flight: 1,
+            request_timeout: Duration::from_secs(1),
+            stream_timeout: Duration::from_millis(150),
+        })
+        .unwrap();
+        let app = wrap(
+            Router::new()
+                .route(
+                    "/stream",
+                    get(move || {
+                        let dropped = dropped_handler.clone();
+                        let polls = polls_handler.clone();
+                        let entered = entered_handler.clone();
+                        async move {
+                            entered.notify_one();
+                            Body::new(RepeatedBody {
+                                dropped,
+                                polls,
+                                chunk: Bytes::from(vec![b'x'; 64 * 1024]),
+                            })
+                        }
+                    }),
+                )
+                .route("/ready", get(|| async { "ready" })),
+            admission.clone(),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.set_recv_buffer_size(1024).unwrap();
+        let mut reader = socket.connect(address).await.unwrap();
+        reader
+            .write_all(format!("GET /stream HTTP/1.1\r\nHost: {address}\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        entered.notified().await;
+        let client = reqwest::Client::new();
+        assert_eq!(
+            client
+                .get(format!("http://{address}/ready"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        // Keep the TCP client OPEN and never read its headers or body.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !dropped.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("stream producer must be dropped independently of the stalled socket reader");
+        assert!(polls.load(Ordering::SeqCst) > 0);
+        assert_eq!(admission.permits.available_permits(), 1);
+        assert_eq!(
+            client
+                .get(format!("http://{address}/ready"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        drop(reader);
+        server.abort();
+    }
+
     #[test]
     fn admission_limits_are_explicit_and_bounded() {
         assert!(Admission::new(0).is_err());
         assert!(Admission::new(MAX_IN_FLIGHT_REQUESTS + 1).is_err());
         assert!(Admission::new(DEFAULT_MAX_IN_FLIGHT_REQUESTS).is_ok());
+        assert!(
+            Admission::with_limits(AdmissionLimits {
+                request_timeout: Duration::ZERO,
+                ..Default::default()
+            })
+            .is_err()
+        );
+        assert!(
+            Admission::with_limits(AdmissionLimits {
+                stream_timeout: Duration::ZERO,
+                ..Default::default()
+            })
+            .is_err()
+        );
+        assert!(
+            Admission::with_limits(AdmissionLimits {
+                request_timeout: Duration::from_secs(601),
+                ..Default::default()
+            })
+            .is_err()
+        );
+        assert!(
+            Admission::with_limits(AdmissionLimits {
+                stream_timeout: Duration::from_secs(3601),
+                ..Default::default()
+            })
+            .is_err()
+        );
     }
 }
