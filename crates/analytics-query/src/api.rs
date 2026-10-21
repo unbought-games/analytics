@@ -29,10 +29,10 @@ impl Extension for QueryExtension {
     }
     fn tools(&self) -> Vec<ToolDefinition> {
         [
-            ("export_create","Create an authorized durable JSONL export; returns a queued job and retrievable manifest",json!({"type":"object","required":["query","format","retention_hours"],"properties":{"query":{"type":"object"},"format":{"const":"jsonl"},"retention_hours":{"type":"integer","minimum":1,"maximum":168}},"additionalProperties":false})),
+            ("export_create","Create an authorized durable JSONL export; returns a queued job and retrievable manifest",serde_json::to_value(schemars::schema_for!(ExportRequest)).expect("serializable schema")),
             ("export_status","Inspect export state",id_schema()),("export_manifest","Retrieve typed export manifest",id_schema()),("export_cancel","Cancel a queued/running export",id_schema()),("export_delete","Expire and delete an export",id_schema()),
             ("query_source_discover","Describe only authorized source schemas/capabilities",id_schema()),("query_analytics_discover","Describe retained analytics and policy limitations",id_schema()),
-            ("query_save","Save an immutable versioned query definition",json!({"type":"object","required":["id","name","version","query","description"],"properties":{"id":{"type":"string"},"name":{"type":"string"},"version":{"type":"string"},"query":{"type":"object"},"description":{"type":"string"}},"additionalProperties":false})),
+            ("query_save","Save an immutable versioned query definition",serde_json::to_value(schemars::schema_for!(SavedDefinition)).expect("serializable schema")),
             ("query_reproduce","Run an exact saved definition/version at a specified cutoff",json!({"type":"object","required":["id","version","cutoff"],"properties":{"id":{"type":"string"},"version":{"type":"string"},"cutoff":{"type":"string"},"retention_hours":{"type":"integer"}},"additionalProperties":false})),
         ].into_iter().map(|(n,d,s)|ToolDefinition{name:n.into(),description:d.into(),input_schema:s}).collect()
     }
@@ -203,6 +203,7 @@ pub async fn save_definition(
     sqlx::query("INSERT INTO admin_objects(kind,id,scope_kind,scope_id,value) VALUES('definition_versions',$1,$2,$3,$4) ON CONFLICT(kind,id) DO NOTHING").bind(version_id).bind(kind).bind(&scope.id).bind(&encoded).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO admin_objects(kind,id,scope_kind,scope_id,value) VALUES('definitions',$1,$2,$3,$4) ON CONFLICT(kind,id) DO UPDATE SET value=excluded.value,revision=admin_objects.revision+1,updated_at=now()")
         .bind(d.id.to_string()).bind(kind).bind(&scope.id).bind(&encoded).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO audit_records(principal_id,delegated_by,action,target,outcome) VALUES($1,$2,'definitions:manage',$3,'success')").bind(a.principal_id).bind(a.delegated_by).bind(d.id.to_string()).execute(&mut *tx).await?;
     tx.commit().await?;
     value(d)
 }

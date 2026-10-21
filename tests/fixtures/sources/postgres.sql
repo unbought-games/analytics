@@ -12,3 +12,4 @@ INSERT INTO reporting.large SELECT n,repeat('synthetic',16) FROM generate_series
 GRANT SELECT ON reporting.large TO fixture_reader;
 CREATE TABLE reporting.private (id integer);
 CREATE FUNCTION reporting.unsafe() RETURNS integer LANGUAGE sql SECURITY DEFINER AS 'SELECT 42';
+REVOKE EXECUTE ON FUNCTION reporting.unsafe() FROM PUBLIC;

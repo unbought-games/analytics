@@ -48,16 +48,36 @@ fn scope() -> BTreeMap<String, BTreeSet<String>> {
 }
 #[tokio::test]
 async fn postgres_restricted_streaming_lossless_and_cancellation() {
-    let Ok(url) = std::env::var("QUERY_TEST_DATABASE_URL") else {
-        eprintln!("SKIP: QUERY_TEST_DATABASE_URL not supplied");
-        return;
-    };
+    let url = std::env::var("QUERY_TEST_DATABASE_URL")
+        .expect("QUERY_TEST_DATABASE_URL must reference a disposable PostgreSQL database");
+    let admin = sqlx::PgPool::connect(&url).await.unwrap();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let dbname = format!("source_{suffix}");
+    let role = format!("reader_{suffix}");
+    sqlx::query(&format!("CREATE DATABASE {dbname}"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let mut parsed = reqwest::Url::parse(&url).unwrap();
+    parsed.set_path(&format!("/{dbname}"));
+    let url = parsed.to_string();
     let pool = sqlx::PgPool::connect(&url).await.unwrap();
-    sqlx::raw_sql(include_str!("../../../tests/fixtures/sources/postgres.sql"))
+    sqlx::raw_sql(
+        &include_str!("../../../tests/fixtures/sources/postgres.sql")
+            .replace("fixture_reader", &role),
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let password = uuid::Uuid::new_v4().simple().to_string();
+    sqlx::query(&format!("ALTER ROLE {role} PASSWORD '{password}'"))
         .execute(&pool)
         .await
         .unwrap();
-    let restricted = url.replace("postgres@", "fixture_reader@");
+    let mut parsed = reqwest::Url::parse(&url).unwrap();
+    parsed.set_username(&role).unwrap();
+    parsed.set_password(Some(&password)).unwrap();
+    let restricted = parsed.to_string();
     let source = PostgresSource::new(restricted.clone(), scope());
     let discovered = source.discover().await.unwrap();
     assert!(!discovered.to_string().contains("hidden"));
@@ -83,6 +103,7 @@ async fn postgres_restricted_streaming_lossless_and_cancellation() {
     assert_eq!(sink.rows[0]["payload"]["nested"], "9007199254740993");
     assert!(sink.rows[1]["amount"].is_null());
     for query in [
+        "SELECT 1 AS x, 2 AS x ORDER BY 1",
         "SELECT hidden FROM reporting.activity ORDER BY id",
         "SELECT * FROM reporting.private ORDER BY id",
         "SELECT reporting.unsafe() ORDER BY 1",
@@ -113,6 +134,12 @@ async fn postgres_restricted_streaming_lossless_and_cancellation() {
     assert!(
         sqlx::query("SELECT hidden FROM reporting.activity")
             .fetch_all(&direct)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("SELECT reporting.unsafe()")
+            .fetch_one(&direct)
             .await
             .is_err()
     );
@@ -199,10 +226,30 @@ async fn postgres_restricted_streaming_lossless_and_cancellation() {
             .await
             .is_err()
     );
+    for _ in 0..30 {
+        let running:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE usename=$1 AND application_name='analytics_source' AND state='active'").bind(&role).fetch_one(&admin).await.unwrap();
+        if running == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let running:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE usename=$1 AND application_name='analytics_source' AND state='active'").bind(&role).fetch_one(&admin).await.unwrap();
+    assert_eq!(running, 0, "cancelled source backend still active");
+    direct.close().await;
+    pool.close().await;
+    sqlx::query(&format!("DROP DATABASE {dbname} WITH (FORCE)"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    sqlx::query(&format!("DROP ROLE {role}"))
+        .execute(&admin)
+        .await
+        .unwrap();
 }
+type FixtureRequest = (String, BTreeMap<String, String>);
 #[derive(Clone, Default)]
 struct Fixture {
-    requests: Arc<Mutex<Vec<(String, BTreeMap<String, String>)>>>,
+    requests: Arc<Mutex<Vec<FixtureRequest>>>,
 }
 async fn handler(
     State(f): State<Fixture>,
@@ -230,7 +277,7 @@ async fn handler(
         return (StatusCode::BAD_GATEWAY, "sensitive body").into_response();
     }
     if uri.path().contains("api/v1/query_range") {
-        return Json(json!({"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"requests_total","release":"synthetic-r1"},"values":[[1767225600,"NaN"],[1767225660,"+Inf"]]}]},"warnings":["fixture warning"]})).into_response();
+        return Json(json!({"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"requests_total","release":"synthetic-r1"},"values":[[1767225600,"NaN"],[1767225660,"+Inf"]]}]},"warnings":["fixture synthetic-token warning"]})).into_response();
     }
     if uri.path().contains("api/v1/query") {
         return Json(json!({"status":"success","data":{"resultType":"vector","result":[]}}))
@@ -239,8 +286,11 @@ async fn handler(
     if uri.path().contains("api/v1/") {
         return Json(json!({"status":"success","data":["requests_total"]})).into_response();
     }
-    if uri.path().contains("/events/event1/") {
-        return Json(json!({"id":"event1","projectID":"101","release":{"version":"synthetic-r1"},"user":{"email":"redacted@example.invalid"},"request":{"headers":["secret"]},"tags":[{"key":"email","value":"private"},{"key":"request_id","value":"request-1"}]})).into_response();
+    if uri
+        .path()
+        .contains("/events/0123456789abcdef0123456789abcdef/")
+    {
+        return Json(json!({"id":"0123456789abcdef0123456789abcdef","projectID":101,"release":{"version":"synthetic-r1"},"user":{"email":"redacted@example.invalid"},"request":{"headers":["secret"]},"tags":[{"key":"email","value":"private"},{"key":"request_id","value":"request-1"}]})).into_response();
     }
     let body = json!([{"id":if params.contains_key("cursor"){ "issue2" }else{"issue1"},"count":"9007199254740993","project":{"id":"101","slug":"manufactured"},"user":{"email":"private@example.invalid"},"title":"secret context"}]);
     if !params.contains_key("cursor") {
@@ -269,7 +319,7 @@ async fn vendor_fixtures_scope_pagination_redaction_missing_rate_limits() {
         collect: true,
         ..Default::default()
     };
-    source
+    let summary = source
         .prometheus(
             &PrometheusQuery::Range {
                 expression: "requests_total".into(),
@@ -283,6 +333,7 @@ async fn vendor_fixtures_scope_pagination_redaction_missing_rate_limits() {
         )
         .await
         .unwrap();
+    assert_eq!(summary.warnings, vec!["fixture [redacted] warning"]);
     assert_eq!(sink.rows[0]["series"]["values"][0][1], "NaN");
     assert_eq!(sink.rows[0]["series"]["values"][0][0], "1767225600");
     let mut empty = Sink::default();
@@ -404,7 +455,7 @@ async fn vendor_fixtures_scope_pagination_redaction_missing_rate_limits() {
             &SentryQuery::Detail {
                 project: "101".into(),
                 issue: "issue1".into(),
-                event: "event1".into(),
+                event: "0123456789abcdef0123456789abcdef".into(),
             },
             &b,
             &mut detail,
@@ -417,5 +468,23 @@ async fn vendor_fixtures_scope_pagination_redaction_missing_rate_limits() {
     assert!(f.requests.lock().unwrap().iter().all(
         |(path, params)| !path.contains("steal") && params.get("project") != Some(&"-1".into())
     ));
+    let slug_scope = SentryScope {
+        organization: "synthetic".into(),
+        projects: BTreeSet::from(["manufactured".into()]),
+    };
+    source
+        .sentry(
+            &slug_scope,
+            &SentryQuery::Detail {
+                project: "manufactured".into(),
+                issue: "issue1".into(),
+                event: "0123456789abcdef0123456789abcdef".into(),
+            },
+            &b,
+            &mut Sink::default(),
+            &c,
+        )
+        .await
+        .unwrap();
     server.abort();
 }
