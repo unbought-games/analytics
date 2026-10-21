@@ -1533,3 +1533,133 @@ async fn authorization_uses_unique_scopes_before_single_connection_transaction()
     assert!(ack.results.iter().all(|r| r.status == "accepted"));
     assert_eq!(auth.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn same_origin_config_post_uses_query_token_and_origin_without_writes() {
+    let s = state().await;
+    let (mut property, token) = configure(&s, CollectionProfile::Identified).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    property.allowed_origins = vec![origin.clone()];
+    save(&s, &property).await;
+    let app = IngestionExtension.router().with_state(s.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::new();
+    let before: Value =
+        sqlx::query_scalar("SELECT jsonb_agg(to_jsonb(a) ORDER BY kind,id) FROM admin_objects a")
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    for path in ["/v1/ingest/config", "/v1/ingest/policy"] {
+        let url = format!("{origin}{path}?property_id={}", property.id);
+        // Same-origin GET can omit Origin; the trust boundary must stay strict.
+        assert_eq!(
+            client
+                .get(&url)
+                .header("X-Property-Token", &token)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            client
+                .post(&url)
+                .header("X-Property-Token", &token)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            client
+                .post(&url)
+                .header("X-Property-Token", &token)
+                .header("Origin", "null")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            client
+                .post(&url)
+                .header("X-Property-Token", &token)
+                .header("Origin", "https://unapproved.example")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            client
+                .post(&url)
+                .header("X-Property-Token", "invalid-public-token")
+                .header("Origin", &origin)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            401
+        );
+        let post = client
+            .post(&url)
+            .header("X-Property-Token", &token)
+            .header("Origin", &origin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(post.status(), 200);
+        let config: Value = post.json().await.unwrap();
+        assert_eq!(config["property_id"], property.id.to_string());
+        assert!(
+            config["schemas"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|schema| schema["authoritative"] == false)
+        );
+        let get = client
+            .get(&url)
+            .header("X-Property-Token", &token)
+            .header("Origin", &origin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(get.status(), 200);
+        assert_eq!(get.json::<Value>().await.unwrap(), config);
+        let missing_query = client
+            .post(format!("{origin}{path}"))
+            .header("X-Property-Token", &token)
+            .header("Origin", &origin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(missing_query.status(), 400);
+    }
+    let after: Value =
+        sqlx::query_scalar("SELECT jsonb_agg(to_jsonb(a) ORDER BY kind,id) FROM admin_objects a")
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    for table in [
+        "ingest_events",
+        "ingest_receipts",
+        "ingest_counters",
+        "ingest_quotas",
+    ] {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(&format!("SELECT count(*) FROM {table}"))
+                .fetch_one(&s.db)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    server.abort();
+}
