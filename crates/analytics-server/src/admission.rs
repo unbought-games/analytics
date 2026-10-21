@@ -100,7 +100,9 @@ pub(crate) async fn admit(
         response
             .headers_mut()
             .insert(header::RETRY_AFTER, header::HeaderValue::from_static("1"));
-        close_unread_request(&mut response, version);
+        // Do not unconditionally disable keep-alive for complete uploads.
+        // Hyper cheaply drains a dropped body once or closes if still unread;
+        // we never await rejected bodies or create a separate drain work queue.
         return response;
     };
     // Covers body extraction, authentication, pool waits and handler execution.
@@ -802,6 +804,149 @@ mod tests {
             StatusCode::OK
         );
         drop(reader);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn early_http1_overload_can_close_before_upload_finishes_with_or_without_close_header() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // A/B the exact rejection path: the test-only outer layer removes just
+        // the explicit close header, leaving Hyper's unread-body handling intact.
+        for explicit_close in [true, false] {
+            let (base, admission, sender) = streaming_fixture().await;
+            let held = base
+                .clone()
+                .oneshot(request(Method::GET, "/file"))
+                .await
+                .unwrap();
+            let rejected = Arc::new(Notify::new());
+            let signalled = rejected.clone();
+            let app = base.layer(middleware::from_fn(move |request: Request, next: Next| {
+                let signalled = signalled.clone();
+                async move {
+                    let mut response = next.run(request).await;
+                    if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+                        if explicit_close {
+                            response.headers_mut().insert(
+                                header::CONNECTION,
+                                header::HeaderValue::from_static("close"),
+                            );
+                        } else {
+                            response.headers_mut().remove(header::CONNECTION);
+                        }
+                        signalled.notify_one();
+                    }
+                    response
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut acknowledged = 0;
+            let mut upload_transport_errors = 0;
+            let mut wire_503 = 0;
+            for _ in 0..8 {
+                let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+                socket.write_all(format!("POST /readyz HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: 65536\r\n\r\nx").as_bytes()).await.unwrap();
+                tokio::time::timeout(Duration::from_secs(1), rejected.notified())
+                    .await
+                    .unwrap();
+                // Model a client still sending a valid bounded upload after an
+                // early response, without a concurrent response reader.
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                let chunk = [b'x'; 8192];
+                let mut remaining = 65535;
+                let mut send_failed = false;
+                while remaining > 0 {
+                    let size = remaining.min(chunk.len());
+                    if socket.write_all(&chunk[..size]).await.is_err() {
+                        send_failed = true;
+                        break;
+                    }
+                    remaining -= size;
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                let mut response = Vec::new();
+                let read =
+                    tokio::time::timeout(Duration::from_secs(1), socket.read_to_end(&mut response))
+                        .await
+                        .unwrap();
+                let saw_status = response.starts_with(b"HTTP/1.1 503");
+                if saw_status {
+                    wire_503 += 1;
+                }
+                if send_failed || read.is_err() {
+                    upload_transport_errors += 1;
+                } else {
+                    assert!(saw_status, "completed rejection response must carry503");
+                    acknowledged += 1;
+                }
+                // Every upload is accounted for, without calling a send/reset
+                // failure an observed503 or an application acceptance.
+                assert_eq!(admission.permits.available_permits(), 0);
+            }
+            assert_eq!(acknowledged + upload_transport_errors, 8);
+            println!(
+                "HTTP1 early rejection: explicit_close={explicit_close}, requests=8, clean503={acknowledged}, transport_unknown={upload_transport_errors},503_headers_observed_when_reading_after_upload={wire_503}"
+            );
+            drop(held);
+            drop(sender);
+            assert_eq!(admission.permits.available_permits(), 1);
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn complete_small_overload_upload_can_reuse_http1_connection() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        let (app, admission, sender) = streaming_fixture().await;
+        let held = app
+            .clone()
+            .oneshot(request(Method::GET, "/file"))
+            .await
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let mut socket = BufReader::new(tokio::net::TcpStream::connect(address).await.unwrap());
+        for _ in 0..2 {
+            socket.get_mut().write_all(format!("POST /readyz HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}").as_bytes()).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(1), async {
+                let mut line = String::new();
+                socket.read_line(&mut line).await.unwrap();
+                assert!(line.starts_with("HTTP/1.1 503"));
+                let mut length = None;
+                loop {
+                    line.clear();
+                    socket.read_line(&mut line).await.unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    assert!(
+                        !line.is_empty(),
+                        "connection closed before complete response headers"
+                    );
+                    let lower = line.to_ascii_lowercase();
+                    assert_ne!(lower.trim(), "connection: close");
+                    if let Some(value) = lower.strip_prefix("content-length:") {
+                        length = Some(value.trim().parse::<usize>().unwrap());
+                    }
+                }
+                let mut body =
+                    vec![0; length.expect("small JSON response must include content length")];
+                socket.read_exact(&mut body).await.unwrap();
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&body).unwrap()["error"]["code"],
+                    "overloaded"
+                );
+            })
+            .await
+            .unwrap();
+        }
+        assert_eq!(admission.permits.available_permits(), 0);
+        drop(socket);
+        drop(held);
+        drop(sender);
         server.abort();
     }
 
