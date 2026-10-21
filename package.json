@@ -1,0 +1,15 @@
+{
+  "name": "analytics-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @independent-analytics/browser",
+    "check": "npm run check --workspace @independent-analytics/browser",
+    "test:browser": "npm run test --workspace @independent-analytics/browser",
+    "benchmark:browser": "npm run benchmark --workspace @independent-analytics/browser",
+    "test:browser:service": "npm run test:service --workspace @independent-analytics/browser"
+  }
+}

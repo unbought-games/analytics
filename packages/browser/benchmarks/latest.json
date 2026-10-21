@@ -1,0 +1,143 @@
+{
+  "formatVersion": 1,
+  "measuredAt": "2026-10-21T20:01:13.602Z",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M2 Pro",
+    "logicalCPUs": 12,
+    "node": "v24.18.0",
+    "chromium": "156.0.8078.4"
+  },
+  "workload": {
+    "warmupInitializations": 5,
+    "measuredInitializations": 25,
+    "normalNavigationTransitions": 5,
+    "normalClicks": 50,
+    "burstClicks": 10000,
+    "profile": "identified",
+    "policyFixture": "local controlled HTTP, not Rust service",
+    "flush": "explicit at each normal segment; failed endpoint during burst; 40 manual bounded drain attempts"
+  },
+  "budgets": {
+    "esmGzipBytes": 12288,
+    "synchronousInitializationP95Ms": 5,
+    "interactionP95Ms": 2,
+    "queueEvents": 200,
+    "queueEncodedBytes": 131072
+  },
+  "bundles": {
+    "index.js": {
+      "minifiedBytes": 25736,
+      "gzipBytes": 8759,
+      "brotliBytes": 7808
+    },
+    "index.cjs": {
+      "minifiedBytes": 26208,
+      "gzipBytes": 8969,
+      "brotliBytes": 8000
+    },
+    "analytics.global.js": {
+      "minifiedBytes": 26225,
+      "gzipBytes": 8976,
+      "brotliBytes": 8005
+    }
+  },
+  "initializationMs": {
+    "syncP50": 0.10000002384185791,
+    "syncP95": 0.19999992847442627,
+    "readyP50": 0.6999999284744263,
+    "readyP95": 0.9000000953674316
+  },
+  "interactionMs": {
+    "p50": 0,
+    "p95": 0.10000002384185791,
+    "burstTotal": 95.79999995231628,
+    "burstAmortized": 0.009579999995231629
+  },
+  "normal": {
+    "runtimeId": "aa6cf748-2158-47d6-9fd6-3c6588b60b07",
+    "coverageStartedAt": "2026-10-21T20:01:13.356Z",
+    "controlFailures": 0,
+    "produced": 56,
+    "accepted": 56,
+    "rejected": 0,
+    "dropped": {
+      "queue": 0,
+      "oversized": 0,
+      "exhausted": 0,
+      "policy": 0,
+      "invalid": 0,
+      "notReady": 0
+    },
+    "queuedEvents": 0,
+    "queuedBytes": 0,
+    "inFlightEvents": 0,
+    "inFlightBytes": 0,
+    "highWaterEvents": 12,
+    "highWaterBytes": 8173,
+    "requests": 5,
+    "requestBytes": 38475,
+    "preferenceBlocked": false,
+    "storageUnavailable": false
+  },
+  "burst": {
+    "runtimeId": "b60f3566-77c1-413d-901b-4bd3f70dca8e",
+    "coverageStartedAt": "2026-10-21T20:01:13.375Z",
+    "controlFailures": 0,
+    "produced": 10001,
+    "accepted": 0,
+    "rejected": 0,
+    "dropped": {
+      "queue": 9811,
+      "oversized": 0,
+      "exhausted": 0,
+      "policy": 0,
+      "invalid": 0,
+      "notReady": 0
+    },
+    "queuedEvents": 190,
+    "queuedBytes": 130861,
+    "inFlightEvents": 0,
+    "inFlightBytes": 0,
+    "highWaterEvents": 190,
+    "highWaterBytes": 130861,
+    "requests": 0,
+    "requestBytes": 0,
+    "preferenceBlocked": false,
+    "storageUnavailable": false
+  },
+  "outage": {
+    "runtimeId": "b60f3566-77c1-413d-901b-4bd3f70dca8e",
+    "coverageStartedAt": "2026-10-21T20:01:13.375Z",
+    "controlFailures": 0,
+    "produced": 10001,
+    "accepted": 0,
+    "rejected": 0,
+    "dropped": {
+      "queue": 9811,
+      "oversized": 0,
+      "exhausted": 190,
+      "policy": 0,
+      "invalid": 0,
+      "notReady": 0
+    },
+    "queuedEvents": 0,
+    "queuedBytes": 0,
+    "inFlightEvents": 0,
+    "inFlightBytes": 0,
+    "highWaterEvents": 190,
+    "highWaterBytes": 130861,
+    "requests": 29,
+    "requestBytes": 393501,
+    "preferenceBlocked": false,
+    "storageUnavailable": false
+  },
+  "heapBytes": {
+    "before": 1076144,
+    "beforeGC": 4190436,
+    "retainedAfterGC": 1256276,
+    "retainedDelta": 180132,
+    "note": "Chromium total page JS heap; allocator/GC measurement, not a portable exact SDK heap bound"
+  }
+}
