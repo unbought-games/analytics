@@ -282,7 +282,7 @@ pub async fn download(
 }
 
 pub struct FileSink {
-    file: fs::File,
+    file: tokio::io::BufWriter<fs::File>,
     hash: Sha256,
     pub rows: u64,
     pub bytes: u64,
@@ -298,7 +298,7 @@ impl FileSink {
             options.mode(0o600);
         }
         Ok(Self {
-            file: options.open(path).await?,
+            file: tokio::io::BufWriter::with_capacity(64 * 1024, options.open(path).await?),
             hash: Sha256::new(),
             rows: 0,
             bytes: 0,
@@ -308,7 +308,7 @@ impl FileSink {
     }
     pub async fn finish(mut self) -> Result<(u64, u64, String, Vec<Column>), SourceError> {
         self.file.flush().await?;
-        self.file.sync_all().await?;
+        self.file.get_ref().sync_all().await?;
         Ok((
             self.rows,
             self.bytes,
@@ -328,28 +328,28 @@ impl RowSink for FileSink {
         {
             return Err(SourceError::Limit);
         }
-        if self.columns.is_empty() {
-            if let Some(object) = row.as_object() {
-                self.columns = object
-                    .iter()
-                    .map(|(k, v)| Column {
-                        name: k.clone(),
-                        data_type: match v {
-                            Value::Null => "unknown",
-                            Value::Bool(_) => "boolean",
-                            Value::String(_) => "string",
-                            Value::Array(_) => "array",
-                            Value::Object(_) => "object",
-                            Value::Number(_) => "number",
-                        }
-                        .into(),
-                        nullable: true,
-                        encoding: "lossless JSON; numeric strings".into(),
-                        namespace: None,
-                        unit: None,
-                    })
-                    .collect();
-            }
+        if self.columns.is_empty()
+            && let Some(object) = row.as_object()
+        {
+            self.columns = object
+                .iter()
+                .map(|(k, v)| Column {
+                    name: k.clone(),
+                    data_type: match v {
+                        Value::Null => "unknown",
+                        Value::Bool(_) => "boolean",
+                        Value::String(_) => "string",
+                        Value::Array(_) => "array",
+                        Value::Object(_) => "object",
+                        Value::Number(_) => "number",
+                    }
+                    .into(),
+                    nullable: true,
+                    encoding: "lossless JSON; numeric strings".into(),
+                    namespace: None,
+                    unit: None,
+                })
+                .collect();
         }
         self.file.write_all(&line).await?;
         self.hash.update(&line);

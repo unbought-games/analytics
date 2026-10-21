@@ -58,10 +58,10 @@ pub async fn validate_request(state: &AppState, query: &QueryRequest) -> ApiResu
     {
         return Err(ApiError::bad_request("Invalid query definition"));
     }
-    if let Some(w) = &query.window {
-        if w.end < w.start || w.end > query.cutoff {
-            return Err(ApiError::bad_request("Window must end at or before cutoff"));
-        }
+    if let Some(w) = &query.window
+        && (w.end < w.start || w.end > query.cutoff)
+    {
+        return Err(ApiError::bad_request("Window must end at or before cutoff"));
     }
     if query.property_id.is_some() {
         if query.kind != "analytics" {
@@ -357,6 +357,17 @@ pub async fn execute(
     }
 }
 pub async fn discover(state: &AppState, actor: &AuthContext, id: Uuid) -> ApiResult<Value> {
+    static DISCOVERY: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    let _permit = DISCOVERY
+        .get_or_init(|| tokio::sync::Semaphore::new(4))
+        .try_acquire()
+        .map_err(|_| {
+            ApiError::new(
+                axum::http::StatusCode::TOO_MANY_REQUESTS,
+                "discovery_busy",
+                "Discovery capacity reached",
+            )
+        })?;
     state
         .auth
         .authorize(actor, "sources:read", &Resource::source(id))
@@ -419,15 +430,14 @@ pub async fn metadata(
         {
             coverage.complete = false;
         }
-        if let Some(w) = &q.window {
-            if coverage.history_start.is_some_and(|t| t > w.start)
-                || coverage.history_end.is_some_and(|t| t < w.end)
-            {
-                coverage.complete = false;
-                coverage
-                    .limitations
-                    .push("Requested window exceeds declared retained history".into());
-            }
+        if let Some(w) = &q.window
+            && (coverage.history_start.is_some_and(|t| t > w.start)
+                || coverage.history_end.is_some_and(|t| t < w.end))
+        {
+            coverage.complete = false;
+            coverage
+                .limitations
+                .push("Requested window exceeds declared retained history".into());
         }
         for c in columns {
             if let Some(v) = s.semantics.get("columns").and_then(|v| v.get(&c.name)) {

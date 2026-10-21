@@ -48,12 +48,15 @@ pub struct Order {
 fn name(s: &str) -> bool {
     !s.is_empty() && s.len() < 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
+fn path(s: &str) -> bool {
+    s.split('.').count() <= 4 && s.split('.').all(name)
+}
 pub fn parse(value: &Value) -> ApiResult<AnalyticsQuery> {
     let q: AnalyticsQuery = serde_json::from_value(value.clone())
         .map_err(|_| ApiError::bad_request("Invalid analytics query"))?;
     if !matches!(
         q.dataset.as_str(),
-        "events" | "acquisition" | "identity_map"
+        "events" | "acquisition" | "identity_map" | "visits" | "touches"
     ) || q.select.len() > 64
         || q.filters.len() > 32
         || q.group_by.len() > 8
@@ -69,10 +72,10 @@ pub fn parse(value: &Value) -> ApiResult<AnalyticsQuery> {
         .chain(q.group_by.iter())
         .chain(q.filters.iter().map(|f| &f.field))
         .chain(q.order_by.iter().map(|o| &o.field))
-        .any(|s| !name(s))
+        .any(|s| !path(s))
         || q.aggregates.iter().any(|a| {
             !name(&a.alias)
-                || a.field.as_ref().is_some_and(|f| !name(f))
+                || a.field.as_ref().is_some_and(|f| !path(f))
                 || !matches!(a.op.as_str(), "count" | "sum" | "avg" | "min" | "max")
                 || (a.op != "count" && a.field.is_none())
         })
@@ -95,7 +98,7 @@ pub fn parse(value: &Value) -> ApiResult<AnalyticsQuery> {
     Ok(q)
 }
 fn field(field: &str) -> String {
-    format!("data->'{field}'")
+    format!("data#>'{{{}}}'", field.replace('.', ","))
 }
 pub async fn run(
     state: &AppState,
@@ -113,13 +116,18 @@ pub async fn run(
         let watermark:Option<i64>=sqlx::query_scalar("SELECT max(receipt_cursor) FROM ingest_events WHERE property_id=$1").bind(property).fetch_one(&mut *tx).await?;
         let (table,time,projection)=match q.dataset.as_str(){
             "events"=>("ingest_events","occurred_at","payload || jsonb_build_object('receipt_cursor',receipt_cursor,'received_at',to_char(received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'))"),
-            "acquisition"=>("ingest_acquisitions","signed_up_at","jsonb_build_object('event_id',signup_event_id::text,'kind','signup','campaign',coalesce(campaign->>'experiment_id',campaign->>'utm_campaign'),'occurred_at',to_char(signed_up_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),'authoritative',true,'property',property_id::text,'visit_id',NULL,'issuer',subject_namespace,'subject',subject_id,'attribution_rule',rule_version,'touch_id',first_touch_id::text,'last_touch_id',last_touch_id::text,'campaign_facts',campaign)"),
+            "acquisition"=>("ingest_acquisitions","signed_up_at","jsonb_build_object('event_id',signup_event_id::text,'kind','signup','campaign',coalesce(campaign->>'experiment_id',campaign->>'utm_campaign'),'occurred_at',to_char(signed_up_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),'authoritative',true,'property',property_id::text,'visit_id',(SELECT e.visit_id FROM ingest_events e WHERE e.property_id=ingest_acquisitions.property_id AND e.event_id=signup_event_id AND e.expires_at>now()),'issuer',subject_namespace,'subject',subject_id,'attribution_rule',rule_version,'touch_id',first_touch_id::text,'last_touch_id',last_touch_id::text,'campaign_facts',campaign)"),
+            "touches"=>("ingest_touches","occurred_at","jsonb_build_object('touch_id',touch_id::text,'event_id',event_id::text,'property',property_id::text,'visit_id',visit_id,'occurred_at',to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),'campaign',coalesce(campaign->>'experiment_id',campaign->>'utm_campaign'),'campaign_facts',campaign,'linkage_permitted',visit_id IS NOT NULL AND visitor_id IS NOT NULL)"),
+            "visits"=>("ingest_events","occurred_at","jsonb_build_object('event_id',event_id::text,'kind','visit','campaign',coalesce(payload->'campaign'->>'experiment_id',payload->'campaign'->>'utm_campaign'),'occurred_at',to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),'authoritative',false,'property',property_id::text,'visit_id',visit_id,'visitor_namespace','property:'||property_id::text,'visitor_id',visitor_id,'linkage_permitted',profile='identified' AND visit_id IS NOT NULL AND visitor_id IS NOT NULL)"),
             "identity_map"=>("ingest_identity_links","created_at","jsonb_build_object('id',id::text,'issuer',subject_namespace,'subject',subject_id,'application',target_namespace,'local_account_id',target_id,'status','verified','relationship',relationship,'world',world,'evidence_event_id',evidence_event_id::text)"),
             _=>return Err(SourceError::Invalid("dataset")),
         };
         let mut sql=QueryBuilder::<Postgres>::new(format!("WITH base AS (SELECT {projection} AS data FROM {table} WHERE property_id="));
         sql.push_bind(property).push(" AND expires_at > ").push_bind(Utc::now()).push(format!(" AND {time} < ")).push_bind(request.cutoff);
         if let Some(w)=&request.window {sql.push(format!(" AND {time} >= ")).push_bind(w.start).push(format!(" AND {time} < ")).push_bind(w.end);}
+        if q.dataset=="visits" {
+            sql.push(" AND category='navigation' AND (visit_id IS NULL OR NOT EXISTS(SELECT 1 FROM ingest_events earlier WHERE earlier.property_id=ingest_events.property_id AND earlier.visit_id=ingest_events.visit_id AND earlier.category='navigation' AND (earlier.occurred_at,earlier.event_id)<(ingest_events.occurred_at,ingest_events.event_id)))");
+        }
         sql.push("), filtered AS (SELECT data FROM base WHERE true");
         for f in &q.filters {
             sql.push(" AND ").push(field(&f.field));
@@ -132,7 +140,7 @@ pub async fn run(
             for a in &q.aggregates {if !first{sql.push(",");}first=false;
                 sql.push(format!("'{}',",a.alias));
                 if a.op=="count" {if let Some(f)=&a.field{sql.push(format!("count(NULLIF({}, 'null'::jsonb))",field(f)));}else{sql.push("count(*)");}}
-                else{let f=a.field.as_ref().unwrap();sql.push(format!("{}(CASE WHEN jsonb_typeof({})='number' THEN (data->>'{f}')::numeric ELSE NULL END)",a.op,field(f)));}
+                else{let f=a.field.as_ref().unwrap();sql.push(format!("{}(CASE WHEN jsonb_typeof({})='number' THEN ({})::numeric ELSE NULL END)",a.op,field(f),format_args!("data#>>'{{{}}}'",f.replace('.',","))));}
             }
             sql.push(") AS data FROM filtered");
             if !q.group_by.is_empty(){sql.push(" GROUP BY ").push(q.group_by.iter().map(|f|field(f)).collect::<Vec<_>>().join(","));}
@@ -160,6 +168,6 @@ pub async fn discover(state: &AppState, actor: &AuthContext, property: Uuid) -> 
         load_object(&state.db, "properties", &property.to_string()).await?;
     let rows=sqlx::query("SELECT min(occurred_at) AS first,max(occurred_at) AS last,count(*) AS rows,array_agg(DISTINCT policy_version) AS versions FROM ingest_events WHERE property_id=$1 AND expires_at>now()") .bind(property).fetch_one(&state.db).await?;
     Ok(
-        json!({"property_id":property,"datasets":["events","acquisition","identity_map"],"operators":["eq","ne","lt","le","gt","ge","is_null"],"aggregates":["count","sum","avg","min","max"],"profile":policy.policy.profile,"policy_version":policy.policy.version,"retained_rows":rows.get::<i64,_>("rows").to_string(),"first_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("first"),"last_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("last"),"history_complete":false,"limitations":["Observed bounds do not establish continuous coverage","Minimal/journey profiles cannot establish person-level longitudinal retention"]}),
+        json!({"property_id":property,"datasets":["events","acquisition","identity_map","visits","touches"],"operators":["eq","ne","lt","le","gt","ge","is_null"],"aggregates":["count","sum","avg","min","max"],"profile":policy.policy.profile,"policy_version":policy.policy.version,"retained_rows":rows.get::<i64,_>("rows").to_string(),"first_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("first"),"last_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("last"),"history_complete":false,"limitations":["Observed bounds do not establish continuous coverage","Minimal/journey profiles cannot establish person-level longitudinal retention"]}),
     )
 }

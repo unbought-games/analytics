@@ -56,7 +56,11 @@ impl HttpSource {
             .join(path)
             .map_err(|_| SourceError::Invalid("source_path"))?;
         cancellable(cancel, async {
-            let mut request = self.client.get(url).query(params);
+            let mut request = self
+                .client
+                .get(url)
+                .query(params)
+                .timeout(Duration::from_millis(budget.timeout_ms));
             if let Some(token) = &self.token {
                 request = request.bearer_auth(token);
             }
@@ -251,10 +255,19 @@ impl HttpSource {
         let warnings = body
             .get("warnings")
             .and_then(Value::as_array)
-            .map(|a| a.iter().map(|_| "source_warning_present".into()).collect())
-            .unwrap_or_default();
-        // Upstream warning bodies can include confidential query context. Preserve
-        // presence/count in ordinary metadata, not arbitrary vendor messages.
+            .into_iter()
+            .flatten()
+            .take(20)
+            .filter_map(Value::as_str)
+            .map(|warning| {
+                let sanitized = if let Some(secret) = &self.token {
+                    warning.replace(secret, "[redacted]")
+                } else {
+                    warning.to_owned()
+                };
+                sanitized.chars().take(1024).collect()
+            })
+            .collect();
         let data = body.get_mut("data").ok_or(SourceError::Response)?;
         lossless_numbers(data);
         let mut samples = 0;
@@ -400,7 +413,7 @@ impl HttpSource {
             SentryQuery::Detail { issue, event, .. } => {
                 segment(issue)?;
                 segment(event)?;
-                if matches!(event.as_str(), "latest" | "oldest" | "recommended") {
+                if event.len() != 32 || !event.bytes().all(|c| c.is_ascii_hexdigit()) {
                     return Err(SourceError::Invalid("explicit_event_id_required"));
                 }
                 (
@@ -420,12 +433,16 @@ impl HttpSource {
             if let SentryQuery::Detail { .. } = query {
                 // The issue-detail route is organization scoped. Verify project
                 // membership from the response before any bytes enter the sink.
-                if !body
-                    .get("projectID")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()))
+                let response_project = body.get("projectID").and_then(|v| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .or_else(|| v.as_u64().map(|n| n.to_string()))
+                });
+                if response_project
+                    .as_ref()
+                    .is_none_or(|id| id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()))
                     || (project.bytes().all(|c| c.is_ascii_digit())
-                        && !project_matches(&body, project))
+                        && response_project.as_deref() != Some(project.as_str()))
                 {
                     return Err(SourceError::Denied);
                 }
@@ -480,10 +497,10 @@ fn redact_sentry(row: &Value) -> Value {
         "level",
         "environment",
     ] {
-        if let Some(v) = row.get(key) {
-            if v.is_null() || v.is_string() || v.is_number() || v.is_boolean() {
-                out.insert(key.into(), v.clone());
-            }
+        if let Some(v) = row.get(key)
+            && (v.is_null() || v.is_string() || v.is_number() || v.is_boolean())
+        {
+            out.insert(key.into(), v.clone());
         }
     }
     if let Some(project) = row.get("project") {

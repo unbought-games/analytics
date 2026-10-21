@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+schemars.workspace = true
 analytics-core = { path = "../analytics-core" }
 async-trait = "0.1"
 axum = "0.8"
