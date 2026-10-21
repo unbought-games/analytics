@@ -1,0 +1,18 @@
+# Local handoff and operator configuration
+/UNBOUGHT_ANALYTICS_ENGINE.md
+.env
+.env.*
+!.env.example
+/secrets/
+/local/
+/artifacts/
+/exports/
+/target/
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.pem
+*.key
+.DS_Store
