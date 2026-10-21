@@ -23,10 +23,11 @@ an email in a route with a semantic route name); the server cannot infer whether
 an arbitrary path is personal data. Administrators must configure safe routes.
 
 Withdrawal blocks future data associated with the relevant browser/visit or
-verified subject. Reset ends an association; subsequent anonymous activity must
+verified subject. Reset ends an association while retaining bounded minimal lifecycle provenance
+for deletion; subsequent anonymous activity must
 start a fresh visit/visitor identity. A browser cannot claim a new account by
 resetting. Deletion removes events, original touches, acquisition, mappings and
-handoffs in its authorized scope and retains a suppression tombstone so delayed
+handoffs and targeted dedupe receipts in its authorized scope and retains a hashed suppression tombstone so delayed
 retries cannot recreate that history. Operators must apply the corresponding
 lifecycle to previously downloaded exports and independently owned game data.
 

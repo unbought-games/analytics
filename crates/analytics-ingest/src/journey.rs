@@ -43,11 +43,16 @@ pub(crate) fn identifiers(visit: Option<&str>, visitor: Option<&str>) -> ApiResu
     }
     Ok(())
 }
-pub(crate) async fn handoff(state: &AppState, r: HandoffRequest) -> ApiResult<HandoffResponse> {
+pub(crate) async fn handoff(
+    state: &AppState,
+    r: HandoffRequest,
+    actor: Option<&AuthContext>,
+) -> ApiResult<HandoffResponse> {
     identifiers(r.visit_id.as_deref(), r.visitor_id.as_deref())?;
     let mut tx = state.db.begin().await?;
     lock(&mut tx).await?;
     let source = property(&mut tx, r.property_id).await?;
+    capability_quota(&mut tx, r.property_id).await?;
     let audience = property(&mut tx, r.audience).await?;
     if !source.policy.cross_property
         || !audience.policy.cross_property
@@ -91,6 +96,16 @@ pub(crate) async fn handoff(state: &AppState, r: HandoffRequest) -> ApiResult<Ha
     let expires_at = now + Duration::minutes(10);
     sqlx::query("INSERT INTO ingest_handoffs(verifier,property_id,audience,visit_id,visitor_id,touch_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)")
         .bind(hash(&raw)).bind(r.property_id).bind(r.audience).bind(&r.visit_id).bind(&r.visitor_id).bind(touch).bind(expires_at).execute(&mut *tx).await?;
+    if let Some(actor) = actor {
+        audit(
+            &mut tx,
+            actor,
+            r.property_id,
+            "handoff_issue",
+            json!({"audience":r.audience}),
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(HandoffResponse {
         handoff: raw,
@@ -226,14 +241,13 @@ pub async fn identity_link(
     }
     let existing=sqlx::query("SELECT subject_namespace,subject_id FROM ingest_identity_links WHERE property_id=$1 AND target_namespace=$2 AND target_id=$3 AND relationship=$4 AND world=$5")
         .bind(p.id).bind(&r.target.namespace).bind(&r.target.id).bind(&r.relationship).bind(r.world.as_deref().unwrap_or("")).fetch_optional(&mut *tx).await?;
-    if let Some(row) = existing {
-        if row.get::<String, _>("subject_namespace") != r.subject.namespace
-            || row.get::<String, _>("subject_id") != r.subject.id
-        {
-            return Err(ApiError::bad_request(
-                "Identity mapping conflicts with existing account",
-            ));
-        }
+    if let Some(row) = existing
+        && (row.get::<String, _>("subject_namespace") != r.subject.namespace
+            || row.get::<String, _>("subject_id") != r.subject.id)
+    {
+        return Err(ApiError::bad_request(
+            "Identity mapping conflicts with existing account",
+        ));
     }
     sqlx::query("INSERT INTO ingest_identity_links(id,property_id,subject_namespace,subject_id,target_namespace,target_id,relationship,world,evidence_event_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING")
         .bind(Uuid::new_v4()).bind(p.id).bind(&r.subject.namespace).bind(&r.subject.id).bind(&r.target.namespace).bind(&r.target.id).bind(&r.relationship).bind(r.world.unwrap_or_default()).bind(r.evidence_event_id).bind(Utc::now()+Duration::days(p.policy.identity_retention_days as i64)).execute(&mut *tx).await?;
@@ -267,6 +281,21 @@ pub async fn issue_proof(
     let e:Value=sqlx::query_scalar("SELECT payload FROM ingest_events WHERE property_id=$1 AND event_id=$2 AND producer='server' AND subject_id IS NOT NULL AND expires_at>clock_timestamp()")
         .bind(p.id).bind(r.evidence_event_id).fetch_optional(&mut *tx).await?.ok_or_else(ApiError::forbidden)?;
     let e: EventEnvelope = parse(e)?;
+    let schema: EventSchemaDefinition = object(
+        &mut tx,
+        "schemas",
+        &format!("{}:{}:{}", p.id, e.name, e.schema_version),
+    )
+    .await?;
+    if !schema.authoritative
+        || !matches!(
+            e.category,
+            EventCategory::Signup | EventCategory::Enrollment | EventCategory::Custom
+        )
+    {
+        return Err(ApiError::forbidden());
+    }
+    capability_quota(&mut tx, p.id).await?;
     let subject = e.subject.unwrap();
     if e.visit_id != r.visit_id
         || e.visitor_id != r.visitor_id
@@ -326,14 +355,13 @@ pub(crate) async fn identify(state: &AppState, r: IdentifyRequest) -> ApiResult<
     }
     let previous=sqlx::query("SELECT subject_namespace,subject_id FROM ingest_bindings WHERE property_id=$1 AND visit_id=$2 AND visitor_id=$3")
         .bind(p.id).bind(r.visit_id.as_deref().unwrap_or("")).bind(r.visitor_id.as_deref().unwrap_or("")).fetch_optional(&mut *tx).await?;
-    if let Some(row) = previous {
-        if row.get::<String, _>("subject_namespace") != subject.namespace
-            || row.get::<String, _>("subject_id") != subject.id
-        {
-            return Err(ApiError::bad_request(
-                "Reset required before account switching",
-            ));
-        }
+    if let Some(row) = previous
+        && (row.get::<String, _>("subject_namespace") != subject.namespace
+            || row.get::<String, _>("subject_id") != subject.id)
+    {
+        return Err(ApiError::bad_request(
+            "Reset required before account switching",
+        ));
     }
     sqlx::query("INSERT INTO ingest_bindings(property_id,visit_id,visitor_id,subject_namespace,subject_id,evidence_event_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING")
         .bind(p.id).bind(r.visit_id.unwrap_or_default()).bind(r.visitor_id.unwrap_or_default()).bind(subject.namespace).bind(subject.id).bind(row.get::<Uuid,_>("evidence_event_id"))

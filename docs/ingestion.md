@@ -33,7 +33,9 @@ or attribution rules. Server clocks are `server`/`game`; browser clocks are
 ## Durability, ordering and budgets
 
 A batch has 1–100 events and at most 256 KiB (or a lower configured body budget).
-The service accepts up to 6,000 new events per property/minute. There is no
+The service accepts up to 6,000 event attempts and capability issues per property/minute.
+At most 32 HTTP operations enter the module concurrently; excess requests receive
+429 before their bodies are parsed. There is no
 unbounded server memory queue. Database statement/lock budgets are 15/5 seconds.
 Each event receives `accepted`, `duplicate`, `rejected`, or `conflict`, a stable
 reason code and an optional decimal receipt cursor. Semantic rejection of one
@@ -111,7 +113,9 @@ and existing-account login never overwrite acquisition.
 
 Public reset `/v1/identity/reset` and withdrawal `/v1/privacy/withdraw` accept
 `BrowserChoiceRequest {property_id,visit_id?,visitor_id?}`. This supports journey
-withdrawal without durable visitor IDs. Old identifiers are suppressed; reset
+withdrawal without durable visitor IDs. Old identifiers are suppressed; minimal ended-binding provenance remains until
+identity retention/deletion so later deletion can still find original touches. Ended
+bindings never enrich future events. Reset
 requires fresh identifiers before collection resumes. Trusted subject withdrawal
 is `/v1/privacy/withdraw-subject` / `ingest_withdraw`. Scoped deletion is
 `/v1/privacy/delete` / `ingest_delete` and requires `privacy:delete`. It traverses
@@ -143,12 +147,43 @@ Executed against disposable Docker `postgres:17`, loopback published port:
 INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:53668/postgres cargo test -p analytics-ingest --tests
 ```
 
-Result: one validation unit test and five real PostgreSQL integration tests pass.
+Result: two validation/admission unit tests and eight real PostgreSQL integration tests pass.
 They cover ACK/dedupe/conflict, 180-day late arrival, cross-property event-ID reuse,
 policy/authority/origin/prohibited fields, campaign first/last transfer and expiry,
 login versus signup, logical scheduled events, differing namespaces/multiple worlds,
 proof/reset/withdrawal/deletion/export invalidation, transactional rollback, outage
 recovery and crash-after-ACK replay. A test-only authorization implementation isolates
 module behavior; foundation and assembled acceptance tests verify real credentials.
-Further concurrency/retention coverage and actual browser-to-service validation are
-being added; this checkpoint does not claim full A01–A14 completion.
+Followup coverage includes concurrent identical delivery, partial per-event ACKs,
+current-policy changes on retry, dedupe expiry/horizon, quota and loss counters,
+exact attribution window endpoints, audited correction, revoked public tokens,
+scheduled-event proof denial, and reset → short-event expiry → subject deletion
+removing original touches, cross-property references and dedupe receipts. Necessary
+hashed event suppression tombstones prevent replay after deletion. Correction audit
+identifiers are redacted while principal/action history remains.
+
+Additional final checks:
+
+```sh
+INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:53668/postgres cargo test -p analytics-ingest --all-targets
+cargo clippy -p analytics-ingest --all-targets -- -D warnings
+cargo fmt -p analytics-ingest -- --check
+cargo run -q -p analytics-ingest --example openapi > /tmp/analytics-ingest-openapi.json
+```
+
+All targets passed; Clippy and formatting checks passed. The additive OpenAPI
+fragment has 18 paths and resolvable component references. Integration merges
+its `paths` and `components` into the foundation contract; do not replace the
+foundation document. Existing disposable fixtures must be recreated when adopting
+the finalized initial migration.
+
+The browser implementation chat independently ran its Chromium SDK against the
+checkpoint's real loopback/PostgreSQL harness: landing, button and SPA navigation
+committed in one batch, retry deduplicated, a forged subject was rejected and reset
+created a fresh boundary. Its `npm run test:browser:service` owns that reproduction.
+The producer Rust example is covered by actual HTTP recovery tests. The TypeScript
+producer uses the same generated wire DTOs and transactional SQL; its standalone
+runtime validation is tracked with browser/integration work. Overall A01–A14,
+full foundation credential tests, assembled export deletion, performance budgets
+and deployment/publication remain the orchestrating acceptance scope; this module
+does not claim those completed from isolated tests.
