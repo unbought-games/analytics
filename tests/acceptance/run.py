@@ -27,6 +27,11 @@ def main():
             commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_stack.py", "-v"])
             commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_build_context.py", "-v"])
             commands.append(["cargo", "test", "--locked", "--workspace"])
+            commands.append([python, "-m", "unittest", "discover", "-s", "examples/analysis", "-p", "test_*.py", "-v"])
+            if (ROOT / "package.json").is_file():
+                commands.append(["npm", "run", "test:browser"])
+            else:
+                missing.append("browser workspace package.json")
     if args.suite == "acceptance":
         # Integration adds this real cross-component test after the components arrive.
         # Do not allow unittest's 'Ran 0 tests OK' to turn missing coverage green.

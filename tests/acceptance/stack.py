@@ -41,6 +41,8 @@ def provision():
         # Hex-only generated credential is sent through stdin, never an argument/log.
         sql = f"ALTER ROLE synthetic_reader PASSWORD '{password}';\n"
         compose(state, "exec", "-T", "sources", "psql", "-U", "fixture_migration", "-d", "synthetic", "-v", "ON_ERROR_STOP=1", input=sql, text=True, stdout=subprocess.DEVNULL)
+        from cohort_source import install
+        install(state)
         return state
     except BaseException:
         shutdown(state)

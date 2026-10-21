@@ -2,11 +2,12 @@
 
 build:
 	cargo build --locked --workspace
-	npm run build --workspaces --if-present
+	npm run build
 
 check:
 	cargo fmt --all -- --check
 	cargo clippy --locked --workspace --all-targets -- -D warnings
+	npm run check
 	$(MAKE) secret-check
 
 unit:
