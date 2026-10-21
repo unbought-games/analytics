@@ -134,7 +134,9 @@ async fn run() -> ApiResult<()> {
                     max_body_bytes: 1024 * 1024,
                 }),
             };
-            let app = analytics_server::router(state, vec![], oidc);
+            let _export_worker = analytics_query::start_worker(state.clone());
+            let extensions: Vec<Arc<dyn Extension>> = vec![Arc::new(analytics_query::QueryExtension)];
+            let app = analytics_server::router(state, extensions, oidc);
             let listener = tokio::net::TcpListener::bind(bind)
                 .await
                 .map_err(|_| ApiError::internal())?;
