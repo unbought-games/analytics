@@ -30,3 +30,11 @@ Collection profiles: `minimal`, `journey`, `identified`; default minimal, cross-
 ## Foundation administration
 
 `POST /v1/admin/execute` and MCP `admin_execute` use the same `AdminRequest { operation, resource_kind, resource_id?, value? }`. Operations `list`, `get`, `put`, `delete`; principals, grants, credentials and OIDC bindings have typed handling. Credential issue/rotate/revoke are `issue`, `rotate`, `revoke` on kind `credentials`; issue value is `CredentialRequest`; rotate requires old credential ID. Raw token is returned once only by authorized issue/rotate. `GET /v1/me`, MCP `identity` inspect identity/capabilities; `GET /v1/admin/status`, MCP `status` inspect service state. No secret values in normal get/list/audit responses.
+
+## Foundation implementation additions
+
+Migration `0004_auth_sessions.sql` belongs to foundation; it adds external issuer/subject linkage to credential revocation records. It does not alter shared Rust DTOs.
+
+Source creation and changes to `kind`, `endpoint` or `secret_ref` require installation-level `sources:manage`, even if the actor can manage that source. A resource-scoped manager cannot repoint a secret to an endpoint or substitute another source's secret. Other source metadata retains source-scoped administration.
+
+Saved definitions use one authoritative lifecycle: `admin_objects(kind='definitions',id=UUID)` is the current active pointer; `admin_objects(kind='definition_versions',id='<UUID>:<version>')` is immutable version history with the same SavedDefinition DTO and scope columns. Both admin put and query_save must write history/current atomically; differing content at the same version conflicts. Reproduction first requires the active current pointer and its scope permission, then reads current or requested historical version. Deletion removes the current pointer; retained historical records cannot be reproduced while deleted. Scope is immutable even across deletion/recreation. Version strings are 1–120 characters and exclude colons. Query-specific metadata may supplement, never replace, this canonical lifecycle. Schema versions similarly retain `schema_versions` history to prevent version reuse after deleting active schema configuration.
