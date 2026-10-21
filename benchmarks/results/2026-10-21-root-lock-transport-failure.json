@@ -1,0 +1,102 @@
+{
+  "passed": false,
+  "reason": "One burst request had no HTTP acknowledgment; 100 events have unknown acceptance. Driver failed accounting and stopped before export measurement. No retry or acceptance inference was applied.",
+  "revision": "2125a8057da558e5b58e7092f5ca0933f882b192",
+  "source_tree_hashes": {
+    "crates": "668c978b1e7cfc058f96c2848f119b2460f09da6",
+    "migrations": "50d4aac27d550106f2954fbaf94c5f1e6b2c18e9",
+    "Cargo.lock": "4c65e45b33023f60b514d81c853e6246d90bce0e",
+    "packages/browser": "b82c1d4fc6307ce44faf92c1754828d18345deb2",
+    "examples/producers": "a0099b02953482fa59825bb023e31fbbac965172",
+    "tests/acceptance": "67286a06e1f3094c3d7d30f40fcaffe362148f48",
+    "benchmarks": "769500f8c6e28632fe35bdef2dd0d5fcc024d86f"
+  },
+  "normal": {
+    "schema_version": 1,
+    "recorded_at": "2026-10-21T20:36:49.195054+00:00",
+    "revision": "2125a8057da558e5b58e7092f5ca0933f882b192",
+    "working_tree_dirty": false,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6",
+    "cpu_count": 12,
+    "workload": {
+      "requests": 250,
+      "concurrency": 4,
+      "events_per_request": 20,
+      "timeout_seconds": 10,
+      "request_bytes": 3368000
+    },
+    "elapsed_seconds": 1.359026917,
+    "responses": {
+      "200": 250
+    },
+    "accepted_events": 5000,
+    "event_outcomes": {
+      "accepted": 5000
+    },
+    "http_refused_events": 0,
+    "accepted_request_latency_ms": {
+      "p50": 19.461417000000036,
+      "p95": 35.256083000000004,
+      "p99": 45.160332999999994
+    },
+    "accepted_events_per_second": 3679.1029945435585,
+    "request_latency_ms": {
+      "p50": 19.461417000000036,
+      "p95": 35.256083000000004,
+      "p99": 45.160332999999994,
+      "max": 64.7535,
+      "mean": 21.335213332000013
+    },
+    "limitations": [
+      "Client elapsed latency includes JSON handling and connection establishment.",
+      "No server RSS, database impact, or export memory is inferred from HTTP latency.",
+      "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."
+    ]
+  },
+  "burst": {
+    "schema_version": 1,
+    "recorded_at": "2026-10-21T20:36:51.146222+00:00",
+    "revision": "2125a8057da558e5b58e7092f5ca0933f882b192",
+    "working_tree_dirty": false,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6",
+    "cpu_count": 12,
+    "workload": {
+      "requests": 700,
+      "concurrency": 32,
+      "events_per_request": 100,
+      "timeout_seconds": 10,
+      "request_bytes": 47118400
+    },
+    "elapsed_seconds": 1.809643791,
+    "responses": {
+      "503": 565,
+      "200": 134,
+      "transport_error": 1
+    },
+    "accepted_events": 13400,
+    "event_outcomes": {
+      "accepted": 13400
+    },
+    "http_refused_events": 56500,
+    "accepted_request_latency_ms": {
+      "p50": 206.7344579999999,
+      "p95": 230.47004199999998,
+      "p99": 235.05387499999998
+    },
+    "accepted_events_per_second": 7404.7721803832055,
+    "request_latency_ms": {
+      "p50": 2.8079579999999993,
+      "p95": 210.4306250000001,
+      "p99": 228.593041,
+      "max": 247.337833,
+      "mean": 40.315614032857134
+    },
+    "limitations": [
+      "Client elapsed latency includes JSON handling and connection establishment.",
+      "No server RSS, database impact, or export memory is inferred from HTTP latency.",
+      "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."
+    ]
+  }
+}

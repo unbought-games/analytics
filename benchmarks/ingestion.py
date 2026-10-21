@@ -64,8 +64,12 @@ def main():
                 outcomes.update(row["status"] + (":" + row["code"] if row.get("code") else "") for row in result["results"])
         except HTTPError as error:
             status = str(error.code)
-        except (URLError, TimeoutError, ValueError, KeyError):
-            pass
+        except URLError as error:
+            status = "transport_error:" + type(error.reason).__name__
+        except TimeoutError:
+            status = "transport_error:TimeoutError"
+        except (ValueError, KeyError) as error:
+            status = "invalid_ack:" + type(error).__name__
         return (time.perf_counter() - start) * 1000, status, accepted, len(body), outcomes
     start = time.perf_counter()
     # executor.map has at most 100k bounded inputs, at most concurrency active HTTP calls.
