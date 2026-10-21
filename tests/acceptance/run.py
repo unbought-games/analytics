@@ -27,18 +27,27 @@ def main():
             commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_stack.py", "-v"])
             commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_build_context.py", "-v"])
             commands.append(["cargo", "test", "--locked", "--workspace"])
+            commands.append(["cargo", "test", "--locked", "-p", "analytics-server", "--test", "independent_review", "--", "--ignored", "--nocapture"])
+            commands.append(["cargo", "build", "--locked", "-p", "analytics-server"])
+            commands.append(["cargo", "build", "--locked", "-p", "analytics-ingest", "--example", "outbox"])
             commands.append([python, "-m", "unittest", "discover", "-s", "examples/analysis", "-p", "test_*.py", "-v"])
             if (ROOT / "package.json").is_file():
                 commands.append(["npm", "run", "test:browser"])
+                commands.append(["npm", "run", "test:browser:service"])
             else:
                 missing.append("browser workspace package.json")
     if args.suite == "acceptance":
-        # Integration adds this real cross-component test after the components arrive.
+        # Never allow discovery of zero tests to turn missing acceptance coverage green.
         # Do not allow unittest's 'Ran 0 tests OK' to turn missing coverage green.
         required = ["crates/analytics-server/src/main.rs", "packages/browser/package.json", "examples/analysis/analyze", "tests/acceptance/test_journey.py"]
         missing.extend(path for path in required if not (ROOT / path).is_file())
         if not missing:
+            commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_service.py", "-v"])
             commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_journey.py", "-v"])
+            commands.append([python, "tests/acceptance/stack.py", "run", "--", python, "crates/analytics-server/tests/cli_smoke.py"])
+            commands.append([python, "tests/acceptance/stack.py", "run", "--", python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_container.py", "-v"])
+            commands.append([python, "scripts/generate-contract.py", "--check"])
+            commands.append([python, "tests/acceptance/package_check.py"])
     results = []
     for command in commands:
         start = time.monotonic()

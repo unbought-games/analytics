@@ -12,10 +12,12 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 from client import Client
-from export_cohorts import analyze, configure, download_bundle
+from export_cohorts import analyze, configure, download_bundle, BUDGET
+from test_journey import export_query
+import uuid
 from fixtures.server import b64
 from service import Service
-from stack import compose
+from stack import ROOT, compose
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -119,6 +121,62 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 sql(statement)
         self.assertTrue(self.service.client.tool("status")["ready"])
+
+    def test_04b_real_vendor_queries_scope_rate_limits_gaps_and_redaction(self):
+        service=self.service
+        ids={}
+        for kind in ("prometheus","sentry"):
+            source_id=str(uuid.uuid4())
+            secret=service.secrets/(kind+"-vendor-token")
+            secret.write_text("manufactured-vendor-credential")
+            secret.chmod(0o600)
+            definition={"id":source_id,"name":"Controlled "+kind,"kind":kind,"environment":"test","endpoint":service.oidc.issuer,"secret_ref":secret.name,"allowed_schemas":[],"allowed_tables":[],"allowed_columns":{},"allowed_projects":["game"] if kind=="sentry" else [],"budget":BUDGET,"semantics":{"organization":"synthetic"},"enabled":True}
+            service.client.tool("admin_execute",{"operation":"put","resource_kind":"sources","resource_id":source_id,"value":definition})
+            ids[kind]=source_id
+        def query(kind,value):
+            return {"source_id":ids["prometheus" if kind.startswith("prometheus") else "sentry"],"property_id":None,"kind":kind,"query":value,"parameters":{},"window":{"start":"2026-10-21T00:00:00Z","end":"2026-10-21T00:05:00Z"},"cutoff":"2026-10-21T00:06:00Z","definition_version":"vendor-fixture/1","budget":BUDGET}
+        outputs={}
+        for name,kind,value in [("instant","prometheus_instant",{"expression":"synthetic_requests_total"}),("range","prometheus_range",{"expression":"synthetic_requests_total","step_seconds":60}),("empty","prometheus_instant",{"expression":"fixture_empty"}),("issues","sentry_issues",{"project":"game","filter":""}),("events","sentry_events",{"project":"game"}),("detail","sentry_event",{"project":"game","issue":"101","event":"0123456789abcdef0123456789abcdef"})]:
+            directory=service.directory/("vendor-"+name)
+            manifest=export_query(service,query(kind,value),directory)
+            rows=[]
+            for dataset in manifest["datasets"]:
+                rows.extend(json.loads(line) for line in (directory/dataset["file_name"]).read_text().splitlines())
+            outputs[name]=rows
+        self.assertEqual(outputs["empty"],[])
+        self.assertEqual(len(outputs["issues"]),2)
+        self.assertIn("9007199254740993",json.dumps(outputs["issues"]))
+        self.assertIn("NaN",json.dumps(outputs["range"]))
+        self.assertIn("+Inf",json.dumps(outputs["range"]))
+        for marker in ("private@example.invalid","192.0.2.1","synthetic-sensitive-marker","manufactured-vendor-credential"):
+            self.assertNotIn(marker,json.dumps(outputs))
+        self.assertIn("synthetic-v1",json.dumps(outputs["range"]))
+        self.assertIn("synthetic-v1",json.dumps(outputs["detail"]))
+        for expression in ("fixture_rate_limit","fixture_unavailable"):
+            status=service.client.tool("export_create",{"query":query("prometheus_instant",{"expression":expression}),"format":"jsonl","retention_hours":1})
+            deadline=time.monotonic()+10
+            while status["status"] in ("queued","running") and time.monotonic()<deadline:
+                time.sleep(.05)
+                status=service.client.tool("export_status",{"id":status["id"]})
+            self.assertEqual(status["status"],"failed")
+            failed=service.client.tool("export_manifest",{"id":status["id"]})
+            self.assertEqual(failed["status"],"failed")
+            self.assertEqual(failed["datasets"],[])
+            self.assertFalse(failed["coverage"]["complete"])
+        status=service.client.tool("export_create",{"query":query("sentry_events",{"project":"other"}),"format":"jsonl","retention_hours":1})
+        deadline=time.monotonic()+10
+        while status["status"] in ("queued","running") and time.monotonic()<deadline:
+            time.sleep(.05)
+            status=service.client.tool("export_status",{"id":status["id"]})
+        self.assertEqual(status["status"],"failed")
+        self.assertFalse(any("/other/" in path for path in service.oidc.requests))
+
+    def test_05_official_mcp_sdk_discovery_authorization_and_artifacts(self):
+        service=self.service
+        source=configure(service,known_coverage=True)
+        bundle=download_bundle(service,source,service.directory/"official-sdk-exports")
+        manifest=json.loads((bundle.parent/"acquisition/manifest.json").read_text())
+        subprocess.run(["uv","run","--project","tests/mcp","--locked","--python","3.13","python","tests/mcp/interop.py","--url",service.url,"--credentials",str(service.directory/"bootstrap.json"),"--expect-issuer",service.oidc.issuer,"--manifest-url",service.url+"/v1/exports/"+manifest["export_id"]+"/manifest"],cwd=ROOT,check=True)
 
     def test_99_restore_engine_database_exports_revocations_and_new_queries(self):
         service = self.service

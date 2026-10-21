@@ -1,6 +1,6 @@
 # Shared contract checkpoint v1
 
-All wall times are RFC3339 UTC. UUIDs and logical time are strings. JSON object fields follow `analytics_core::dto`; unknown fields are rejected. `contracts/openapi.json` is generated with `cargo run -q -p analytics-core --example openapi > contracts/openapi.json`. Dependencies are pinned reproducibly by Cargo.lock. Compatibility changes require orchestrator coordination.
+All wall times are RFC3339 UTC. UUIDs and logical time are strings. JSON object fields follow `analytics_core::dto`; unknown fields are rejected. `contracts/openapi.json` is generated reproducibly with `python3 scripts/generate-contract.py`; `--check` fails on drift. It merges foundation DTOs with the authoritative ingestion and query route generators, verifies every local reference, and retains browser wire compatibility. Individual Rust generators emit fragments for composition, not replacement of the published contract. Dependencies are pinned reproducibly by Cargo.lock. Compatibility changes require orchestrator coordination.
 
 ## Modules and composition
 

@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--timeout", type=float, default=10)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--allow-backpressure", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.requests <= 100000 or not 1 <= args.concurrency <= 128:
         parser.error("bounded requests/concurrency required")
@@ -53,17 +54,19 @@ def main():
         body = json.dumps({"events": events}).encode()
         start = time.perf_counter()
         accepted = 0
+        outcomes = Counter()
         status = "transport_error"
         try:
             with client.opener.open(Request(args.url, data=body, headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"}), timeout=args.timeout) as response:
                 status = str(response.status)
                 result = json.loads(response.read(8 * 1024 * 1024))
                 accepted = sum(row["status"] == "accepted" for row in result["results"])
+                outcomes.update(row["status"] + (":" + row["code"] if row.get("code") else "") for row in result["results"])
         except HTTPError as error:
             status = str(error.code)
         except (URLError, TimeoutError, ValueError, KeyError):
             pass
-        return (time.perf_counter() - start) * 1000, status, accepted, len(body)
+        return (time.perf_counter() - start) * 1000, status, accepted, len(body), outcomes
     start = time.perf_counter()
     # executor.map has at most 100k bounded inputs, at most concurrency active HTTP calls.
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
@@ -71,11 +74,18 @@ def main():
     elapsed = time.perf_counter() - start
     latencies = [row[0] for row in observations]
     accepted = sum(row[2] for row in observations)
-    report = {"schema_version": 1, "recorded_at": datetime.now(timezone.utc).isoformat(), "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)), "platform": platform.platform(), "python": platform.python_version(), "cpu_count": os.cpu_count(), "workload": {"requests": args.requests, "concurrency": args.concurrency, "events_per_request": len(template["events"]), "timeout_seconds": args.timeout, "request_bytes": sum(row[3] for row in observations)}, "elapsed_seconds": elapsed, "responses": dict(Counter(row[1] for row in observations)), "accepted_events": accepted, "accepted_events_per_second": accepted / elapsed, "request_latency_ms": {"p50": percentile(latencies, .50), "p95": percentile(latencies, .95), "p99": percentile(latencies, .99), "max": max(latencies), "mean": statistics.mean(latencies)}, "limitations": ["Client elapsed latency includes JSON handling and connection establishment.", "No server RSS, database impact, or export memory is inferred from HTTP latency.", "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."]}
+    accepted_latencies = [row[0] for row in observations if row[2] > 0]
+    refused = sum(len(template["events"]) for row in observations if row[1] in ("429", "503"))
+    outcomes = Counter()
+    for row in observations:
+        outcomes.update(row[4])
+    report = {"schema_version": 1, "recorded_at": datetime.now(timezone.utc).isoformat(), "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)), "platform": platform.platform(), "python": platform.python_version(), "cpu_count": os.cpu_count(), "workload": {"requests": args.requests, "concurrency": args.concurrency, "events_per_request": len(template["events"]), "timeout_seconds": args.timeout, "request_bytes": sum(row[3] for row in observations)}, "elapsed_seconds": elapsed, "responses": dict(Counter(row[1] for row in observations)), "accepted_events": accepted, "event_outcomes": dict(outcomes), "http_refused_events": refused, "accepted_request_latency_ms": {"p50": percentile(accepted_latencies,.5), "p95": percentile(accepted_latencies,.95), "p99": percentile(accepted_latencies,.99)}, "accepted_events_per_second": accepted / elapsed, "request_latency_ms": {"p50": percentile(latencies, .50), "p95": percentile(latencies, .95), "p99": percentile(latencies, .99), "max": max(latencies), "mean": statistics.mean(latencies)}, "limitations": ["Client elapsed latency includes JSON handling and connection establishment.", "No server RSS, database impact, or export memory is inferred from HTTP latency.", "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."]}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(f"Measured {accepted} accepted events; evidence written to {args.output}")
-    return 0 if accepted == args.requests * len(template["events"]) else 1
+    accounted = sum(outcomes.values()) + refused == args.requests * len(template["events"])
+    permitted = set(outcomes).issubset({"accepted", "rejected:rate_limited"})
+    return 0 if accepted == args.requests * len(template["events"]) or (args.allow_backpressure and accounted and permitted) else 1
 
 
 if __name__ == "__main__":
