@@ -1,5 +1,6 @@
 [workspace]
-members = ["crates/analytics-core", "crates/analytics-server", "crates/analytics-ingest"]
+members = ["crates/analytics-core", "crates/analytics-server", "crates/analytics-ingest", "crates/analytics-query"]
+
 resolver = "2"
 
 [workspace.package]
