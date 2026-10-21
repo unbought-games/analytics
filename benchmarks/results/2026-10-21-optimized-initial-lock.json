@@ -1,0 +1,177 @@
+{
+  "normal": {
+    "schema_version": 1,
+    "recorded_at": "2026-10-21T20:32:50.089209+00:00",
+    "revision": "8d727d24631a79893a6599074788c50637ad963e",
+    "working_tree_dirty": false,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6",
+    "cpu_count": 12,
+    "workload": {
+      "requests": 250,
+      "concurrency": 4,
+      "events_per_request": 20,
+      "timeout_seconds": 10,
+      "request_bytes": 3368000
+    },
+    "elapsed_seconds": 1.629977875,
+    "responses": {
+      "200": 250
+    },
+    "accepted_events": 5000,
+    "event_outcomes": {
+      "accepted": 5000
+    },
+    "http_refused_events": 0,
+    "accepted_request_latency_ms": {
+      "p50": 24.27895899999988,
+      "p95": 35.663540999999995,
+      "p99": 54.91125000000001
+    },
+    "accepted_events_per_second": 3067.5263000118944,
+    "request_latency_ms": {
+      "p50": 24.27895899999988,
+      "p95": 35.663540999999995,
+      "p99": 54.91125000000001,
+      "max": 64.592625,
+      "mean": 25.645280511999992
+    },
+    "limitations": [
+      "Client elapsed latency includes JSON handling and connection establishment.",
+      "No server RSS, database impact, or export memory is inferred from HTTP latency.",
+      "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."
+    ],
+    "service_rss": {
+      "samples": 32,
+      "interval_target_ms": 50,
+      "baseline_bytes": 14598144,
+      "peak_bytes": 17039360,
+      "final_bytes": 15810560
+    },
+    "durable_counters": {
+      "accepted": "5000",
+      "client_reported_dropped": "0"
+    }
+  },
+  "burst": {
+    "schema_version": 1,
+    "recorded_at": "2026-10-21T20:32:52.562581+00:00",
+    "revision": "8d727d24631a79893a6599074788c50637ad963e",
+    "working_tree_dirty": false,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6",
+    "cpu_count": 12,
+    "workload": {
+      "requests": 700,
+      "concurrency": 32,
+      "events_per_request": 100,
+      "timeout_seconds": 10,
+      "request_bytes": 47118400
+    },
+    "elapsed_seconds": 2.3248947920000003,
+    "responses": {
+      "200": 124,
+      "503": 576
+    },
+    "accepted_events": 12400,
+    "event_outcomes": {
+      "accepted": 12400
+    },
+    "http_refused_events": 57600,
+    "accepted_request_latency_ms": {
+      "p50": 250.94191699999996,
+      "p95": 428.11362499999996,
+      "p99": 446.1844999999998
+    },
+    "accepted_events_per_second": 5333.574681602194,
+    "request_latency_ms": {
+      "p50": 3.352457999999947,
+      "p95": 292.2907079999999,
+      "p99": 421.09675000000004,
+      "max": 453.07508399999995,
+      "mean": 49.945665534285716
+    },
+    "limitations": [
+      "Client elapsed latency includes JSON handling and connection establishment.",
+      "No server RSS, database impact, or export memory is inferred from HTTP latency.",
+      "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."
+    ],
+    "service_rss": {
+      "samples": 42,
+      "interval_target_ms": 50,
+      "baseline_bytes": 15941632,
+      "peak_bytes": 25280512,
+      "final_bytes": 24838144
+    },
+    "durable_counters": {
+      "accepted": "12400",
+      "client_reported_dropped": "0"
+    }
+  },
+  "export": {
+    "rows": 100000,
+    "bytes": 16988895,
+    "sha256": "c3a0050a0d1b3cb4ebb0922af1d16813b058c930bbc9823536976b963f72436c",
+    "create_to_verified_download_seconds": 3.1190928750000007,
+    "reconnected_download_first_chunk_ms": 21.02408300000036,
+    "reconnected_download_total_ms": 2358.88875,
+    "service_rss": {
+      "samples": 54,
+      "interval_target_ms": 50,
+      "baseline_bytes": 21168128,
+      "peak_bytes": 23298048,
+      "final_bytes": 17793024
+    },
+    "source_db_cumulative_delta": {
+      "xact_commit": 9,
+      "blks_read": 81,
+      "blks_hit": 3957,
+      "tup_returned": 100918,
+      "tup_fetched": 100913,
+      "temp_bytes": 0
+    },
+    "source_snapshot_semantics": {
+      "coverage_basis": "administrator-declared source history; not inferred from row count",
+      "environment": "benchmark",
+      "kind": "postgres",
+      "null_semantics": "null distinct from absent and zero",
+      "numeric_encoding": "decimal_string_recursive",
+      "snapshot_semantics": "independent source reads; PostgreSQL repeatable-read transaction; vendor pages independent",
+      "source_id": "aa5c8b2f-a571-42d5-9f65-bc562f849c0d"
+    },
+    "query_budget": {
+      "timeout_ms": 30000,
+      "max_rows": 100000,
+      "max_bytes": 67108864,
+      "max_concurrency": 2
+    }
+  },
+  "configuration": {
+    "recorded_at": "2026-10-21T20:32:59.612845+00:00",
+    "revision": "8d727d24631a79893a6599074788c50637ad963e",
+    "dirty": false,
+    "source_tree_hashes": {
+      "crates": "668c978b1e7cfc058f96c2848f119b2460f09da6",
+      "migrations": "50d4aac27d550106f2954fbaf94c5f1e6b2c18e9",
+      "Cargo.lock": "5f08f25f108024bddd2a37c4bab77743b375f64f",
+      "packages/browser": "b82c1d4fc6307ce44faf92c1754828d18345deb2",
+      "examples/producers": "a0099b02953482fa59825bb023e31fbbac965172",
+      "tests/acceptance": "a32bc016e8e9772c39534ee8404e090c8c5f1dae",
+      "benchmarks": "2022c9298f9d354982998ca1e1816622fd9da932"
+    },
+    "service_build": "native cargo --release; default optimization; no service CPU cap; global HTTP admission16",
+    "database": "postgres17.7 containers;1CPU/512MiB each",
+    "rss_method": "ps RSS bytes sampled every50ms; may miss shorter peaks",
+    "source_impact": "pg_stat_database counters include fixture polling; cumulative stats may lag",
+    "outage": "separate actual browser transactional signup/outbox test; not inferred from throughput"
+  },
+  "budget_evaluation": {
+    "normal_p95": true,
+    "normal_p99": true,
+    "rss": true,
+    "stream_incremental_rss": true,
+    "export_rows": true,
+    "burst_backpressure_observed": true
+  },
+  "passed": true
+}
