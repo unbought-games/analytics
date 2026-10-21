@@ -25,15 +25,15 @@ export class HttpAdapter implements ServiceAdapter {
   private reportedDrops = 0;
   private envelopes = new WeakMap<Observation, EventEnvelope>();
   constructor(private options: Options) {}
-  private request(path: string, body: unknown | undefined, signal: AbortSignal, keepalive = false) {
+  private request(path: string, body: unknown | undefined, signal: AbortSignal, keepalive = false, method = body === undefined ? 'GET' : 'POST') {
     return fetch(`${this.options.endpoint.replace(/\/$/, '')}${path}`, {
-      method: body === undefined ? 'GET' : 'POST', headers: {'X-Property-Token': this.options.publicToken, ...(body === undefined ? {} : {'Content-Type': 'application/json'})},
+      method, headers: {'X-Property-Token': this.options.publicToken, ...(body === undefined ? {} : {'Content-Type': 'application/json'})},
       ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal, keepalive,
       credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store', mode: 'cors'
     });
   }
   async policy(signal: AbortSignal): Promise<{options: Options; crossProperty: boolean}> {
-    const response = await this.request(`/v1/ingest/policy?property_id=${encodeURIComponent(this.options.propertyId)}`, undefined, signal);
+    const response = await this.request(`/v1/ingest/config?property_id=${encodeURIComponent(this.options.propertyId)}`, undefined, signal, false, 'POST');
     if (!response.ok) throw new Error('Analytics policy unavailable');
     const result = await readJSON(response) as {property_id: string; policy: CollectionPolicy; handoff_audiences: string[]};
     const policy = result?.policy;

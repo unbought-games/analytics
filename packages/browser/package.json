@@ -27,7 +27,7 @@
     "test": "npm run build && playwright test",
     "benchmark": "npm run build && node scripts/benchmark.mjs",
     "generate:wire": "node scripts/generate-wire.mjs",
-    "test:service": "npm run build && node scripts/service-smoke.mjs",
+    "test:service": "npm run build && node scripts/service-smoke.mjs && node scripts/service-smoke.mjs --same-origin",
     "benchmark:heap": "npm run build && node scripts/heap-benchmark.mjs"
   },
   "devDependencies": {

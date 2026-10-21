@@ -1,9 +1,9 @@
-import {createServer} from 'node:http';
+import {createServer, request as proxyRequest} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 export const propertyId = '11111111-1111-4111-8111-111111111111';
 export const audienceId = '22222222-2222-4222-8222-222222222222';
-export function fixtureServer() {
+export function fixtureServer(options = {}) {
   let state = {requests: [], config: {}, proofs: {}};
   const html = `<!doctype html><meta charset="utf-8"><title>Synthetic browser fixture</title>
   <button id="button" data-analytics="start">Never collect this private text</button>
@@ -20,6 +20,14 @@ export function fixtureServer() {
   document.querySelector('#link').addEventListener('click', e => e.preventDefault());
   document.querySelector('#shadow').attachShadow({mode:'open'}).innerHTML='<button data-analytics="shadow_control">Shadow private text</button>';</script>`;
   const server = createServer(async (req, res) => {
+    if (options.proxyTarget && new URL(req.url, 'http://localhost').pathname.startsWith('/v1/')) {
+      const target = new URL(req.url, options.proxyTarget());
+      const upstream = proxyRequest(target, {method: req.method, headers: {...req.headers, host: target.host}}, response => {
+        res.writeHead(response.statusCode, response.headers); response.pipe(res);
+      });
+      upstream.on('error', () => { res.statusCode = 502; res.end(); });
+      req.pipe(upstream); return;
+    }
     const origin = req.headers.origin;
     res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
     res.setHeader('Access-Control-Allow-Headers', 'content-type,x-property-token');
@@ -35,8 +43,8 @@ export function fixtureServer() {
     if (path === '/test/config') { Object.assign(state.config, body); return json({}); }
     if (path === '/test/proof') { const proof = 'synthetic-proof-' + crypto.randomUUID(); state.proofs[proof] = body; return json({proof}); }
     if (path.startsWith('/v1/')) {
-      state.requests.push({path, body, token: req.headers['x-property-token'], referrer: req.headers.referer ?? null});
-      if (path === '/v1/ingest/policy') {
+      state.requests.push({path, method: req.method, origin: req.headers.origin ?? null, body, token: req.headers['x-property-token'], referrer: req.headers.referer ?? null});
+      if (path === '/v1/ingest/policy' || path === '/v1/ingest/config') {
         if (state.config.policyDelay) await new Promise(resolve => setTimeout(resolve, state.config.policyDelay));
         if (state.config.policyFailure) return json({}, 503);
         return json({property_id: propertyId, policy: {profile: state.config.profile ?? 'identified', version: 1, cross_property: state.config.crossProperty ?? true, respect_global_privacy_control: true, attribution_window_days: 30, allowed_query_keys: ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','experiment'], effective_at: '2026-01-01T00:00:00Z', event_retention_days: 90, identity_retention_days: 365}, handoff_audiences: [audienceId], schemas: [], limitations: []});
