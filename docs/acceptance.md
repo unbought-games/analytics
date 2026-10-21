@@ -29,6 +29,12 @@ The official `mcp==2.3.0` SDK passed discovery, initialized tools, authorized ad
 
 `make acceptance` now explicitly includes all module tests, the ignored-by-default independent review regression, browser unit and real-service tests, live service/official SDK/restore tests, full browser journey, separate CLI lifecycle and container installs, combined contract drift and npm package inventory checks. Release-mode performance and the final producer/admission corrections are still pending final integration; no final A01–A14 signoff yet.
 
+## Full functional run
+
+`make acceptance` completed all **20 commands successfully** after the journal correction, on the task's integrated history through `6b53804`. The run was marked dirty because the acceptance fixture was being strengthened while it progressed; it is functional evidence, not final clean-head release signoff. Rust ingestion ran 11 database suites, the explicit independent review regression ran despite its default ignored annotation, TypeScript recovered its 10,025-command fixture, 43 analytical tests and 27 Chromium tests passed, and the real journal-based cross-property journey, official MCP client, vendor adapters, nonempty engine restore, fresh CLI lifecycle and release container installation all passed. Contract regeneration and actual npm package inventory checks also passed.
+
+The restore now includes nonempty accepted signup/acquisition/verified identity-map facts and compares hashes of their rows across the restored database, then verifies existing artifact checksums, revoked access and fresh exports. Original source tree hashes accompany benchmark evidence so equivalent cherry-picked public revisions can be identified independently of task commit hashes. Final public CI and the optimized A11 workload remain pending.
+
 ## Required integration matrix
 
 | ID | Required remaining evidence |

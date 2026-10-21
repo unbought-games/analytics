@@ -185,6 +185,18 @@ class ServiceTests(unittest.TestCase):
         saved_manifest = json.loads((bundle.parent / "acquisition/manifest.json").read_text())
         credential = service.client.tool("admin_execute", {"operation": "issue", "resource_kind": "credentials", "resource_id": None, "value": {"principal_id": service.handoff["agent_id"], "name": "revoked-before-restore", "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), "grants": [{"action": "*", "resource": {"kind": "installation", "id": "default"}}]}})
         service.client.tool("admin_execute", {"operation": "revoke", "resource_kind": "credentials", "resource_id": credential["id"], "value": None})
+        # Nonempty engine facts must survive, not merely empty ingestion tables.
+        property_id=str(uuid.uuid4())
+        subject={"namespace":"restore-issuer","id":str(uuid.uuid4())}
+        target={"namespace":"restore-game","id":str(uuid.uuid4())}
+        policy={"profile":"identified","version":1,"effective_at":datetime.now(timezone.utc).isoformat(),"cross_property":False,"event_retention_days":365,"identity_retention_days":365,"attribution_window_days":30,"allowed_query_keys":[],"respect_global_privacy_control":True}
+        prop={"id":property_id,"name":"Synthetic restore provenance","allowed_origins":["http://127.0.0.1"],"policy":policy,"handoff_audiences":[],"enabled":True}
+        service.client.tool("admin_execute",{"operation":"put","resource_kind":"properties","resource_id":property_id,"value":prop})
+        schema={"property_id":property_id,"name":"signup","version":1,"authoritative":True,"category":"signup","properties":{key:{"kind":"string","required":True,"max_length":128,"unit":None} for key in ("target_namespace","target_id")}}
+        service.client.tool("admin_execute",{"operation":"put","resource_kind":"schemas","resource_id":property_id+":signup:1","value":schema})
+        event={"event_id":str(uuid.uuid4()),"property_id":property_id,"name":"signup","schema_version":1,"producer":"server","category":"signup","occurred_at":datetime.now(timezone.utc).isoformat(),"clock":"server","logical_time":None,"visit_id":str(uuid.uuid4()),"visitor_id":str(uuid.uuid4()),"subject":subject,"context":{"environment":"synthetic","release":"restore-v1","page":None,"referrer":None,"control":None,"correlation_id":None},"campaign":None,"touch_id":None,"attribution_rule":None,"collection":{"profile":"identified","policy_version":1,"consent":True,"sample_rate":1,"dropped_events":0},"properties":{"target_namespace":target["namespace"],"target_id":target["id"]}}
+        self.assertEqual(service.client.tool("ingest_server",{"events":[event]})["results"][0]["status"],"accepted")
+        service.client.tool("ingest_identity_link",{"property_id":property_id,"subject":subject,"target":target,"relationship":"account","world":None,"evidence_event_id":event["event_id"]})
         service.stop()  # Quiesce application writes before database + filesystem backup.
         dump = compose(service.state, "exec", "-T", "postgres", "pg_dump", "-U", "analytics_migration", "-d", "analytics", "-Fc", capture_output=True).stdout
         def sql(statement, database="postgres"):
@@ -192,8 +204,13 @@ class ServiceTests(unittest.TestCase):
         sql("CREATE DATABASE engine_restore;")
         try:
             compose(service.state, "exec", "-T", "postgres", "pg_restore", "-U", "analytics_migration", "-d", "engine_restore", "--exit-on-error", input=dump, capture_output=True)
+            self.assertEqual(sql("SELECT count(*) FROM ingest_acquisitions;","analytics"),"1")
+            self.assertEqual(sql("SELECT count(*) FROM ingest_identity_links;","analytics"),"1")
             for table in ["principals", "grants", "credentials", "oidc_bindings", "admin_objects", "audit_records", "ingest_events", "ingest_acquisitions", "ingest_identity_links", "export_jobs", "_sqlx_migrations"]:
                 self.assertEqual(sql("SELECT count(*) FROM " + table + ";", "analytics"), sql("SELECT count(*) FROM " + table + ";", "engine_restore"))
+            for table in ("ingest_events","ingest_acquisitions","ingest_identity_links"):
+                digest="SELECT md5(string_agg(row_to_json(t)::text,'|' ORDER BY row_to_json(t)::text)) FROM "+table+" t;"
+                self.assertEqual(sql(digest,"analytics"),sql(digest,"engine_restore"))
             with Service(name="restored", address=service.address) as restored:
                 shutil.copytree(service.exports, restored.exports, dirs_exist_ok=True)
                 shutil.copytree(service.secrets, restored.secrets, dirs_exist_ok=True)

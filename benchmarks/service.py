@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import uuid
+from urllib.request import Request
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"tests/acceptance"))
@@ -97,8 +98,22 @@ def main():
             manifest=export_query(service,query,service.directory/"100k-export")
         elapsed=time.perf_counter()-started
         after=impact()
-        reports["export"]={"rows":manifest["datasets"][0]["row_count"],"bytes":manifest["datasets"][0]["bytes"],"sha256":manifest["datasets"][0]["sha256"],"create_to_verified_download_seconds":elapsed,"service_rss":samples.result(),"source_db_cumulative_delta":{key:after[key]-before[key] for key in before},"source_snapshot_semantics":manifest["provenance"],"query_budget":BUDGET}
-        reports["configuration"]={"recorded_at":datetime.now(timezone.utc).isoformat(),"revision":subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),"dirty":bool(subprocess.check_output(["git","status","--porcelain"],cwd=ROOT)),"service_build":"native cargo --release; default optimization; no service CPU cap; global HTTP admission16","database":"postgres17.7 containers;1CPU/512MiB each","rss_method":"ps RSS bytes sampled every50ms; may miss shorter peaks","source_impact":"pg_stat_database counters include fixture polling; cumulative stats may lag","outage":"separate actual browser transactional signup/outbox test; not inferred from throughput"}
+        dataset=manifest["datasets"][0]
+        request=Request(service.client.url(dataset["download_url"]),headers={"Authorization":"Bearer "+service.handoff["credential"]["token"]})
+        started_download=time.perf_counter()
+        digest=hashlib.sha256()
+        downloaded=0
+        with service.client.opener.open(request,timeout=30) as response:
+            chunk=response.read(65536)
+            first_byte_ms=(time.perf_counter()-started_download)*1000
+            while chunk:
+                digest.update(chunk)
+                downloaded+=len(chunk)
+                chunk=response.read(65536)
+        download_ms=(time.perf_counter()-started_download)*1000
+        assert downloaded==dataset["bytes"] and digest.hexdigest()==dataset["sha256"]
+        reports["export"]={"rows":manifest["datasets"][0]["row_count"],"bytes":manifest["datasets"][0]["bytes"],"sha256":manifest["datasets"][0]["sha256"],"create_to_verified_download_seconds":elapsed,"reconnected_download_first_chunk_ms":first_byte_ms,"reconnected_download_total_ms":download_ms,"service_rss":samples.result(),"source_db_cumulative_delta":{key:after[key]-before[key] for key in before},"source_snapshot_semantics":manifest["provenance"],"query_budget":BUDGET}
+        reports["configuration"]={"recorded_at":datetime.now(timezone.utc).isoformat(),"revision":subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),"dirty":bool(subprocess.check_output(["git","status","--porcelain"],cwd=ROOT)),"source_tree_hashes":{part:subprocess.check_output(["git","rev-parse","HEAD:"+part],cwd=ROOT,text=True).strip() for part in ["crates","migrations","Cargo.lock","packages/browser","examples/producers","tests/acceptance","benchmarks"]},"service_build":"native cargo --release; default optimization; no service CPU cap; global HTTP admission16","database":"postgres17.7 containers;1CPU/512MiB each","rss_method":"ps RSS bytes sampled every50ms; may miss shorter peaks","source_impact":"pg_stat_database counters include fixture polling; cumulative stats may lag","outage":"separate actual browser transactional signup/outbox test; not inferred from throughput"}
     limits=json.loads((ROOT/"benchmarks/budgets.json").read_text())["proposed_limits"]
     reports["budget_evaluation"]={
         "normal_p95":reports["normal"]["accepted_request_latency_ms"]["p95"]<=limits["normal_ingest_p95_ms"],
