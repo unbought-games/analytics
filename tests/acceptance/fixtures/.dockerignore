@@ -1,0 +1,4 @@
+# This fixture image needs only its server and build recipe.
+**
+!server.py
+!Dockerfile

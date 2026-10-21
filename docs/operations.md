@@ -54,3 +54,9 @@ For the engine, back up PostgreSQL and export storage at a documented consistent
 Health/readiness, structured service diagnostics and backlog/rejection/export-failure metrics must be checked on the integrated service. Avoid logging tokens, connection strings, query results or request bodies. Capture revision, schema version, policy version and source coverage when diagnosing missing evidence; successful HTTP delivery alone does not prove accepted events.
 
 Before release, run the complete A01–A14 suite and benchmark workloads, review the evidence and limits, build/package the browser distribution and service image, verify license and schema regeneration, and inspect package contents for secrets. Publishing requires a separate authorized release step, package-name/access checks and immutable version tagging. No live collection, production migration, vendor mutation or package publication is performed here.
+
+## Public build and package boundary
+
+The root Docker context allows only Cargo manifests, crate sources and migrations, with nested secret/cache exclusions. The ignored original local handoff file is explicitly excluded. The fixture context allows only `server.py` and its Dockerfile. Docker build-context tests use manufactured private-file markers in temporary directories and inspect the actual exported Docker context; they never open the operator's local handoff. The service Dockerfile copies those explicit build inputs and the final binary, not the repository wholesale.
+
+Before packaging browser code, build it and inspect `npm pack --dry-run --json --ignore-scripts` from `packages/browser`; only intended package metadata, license/readme and browser distribution files belong in the tarball. Integration will validate the actual package once that task arrives. Git ignore rules do not by themselves control Docker or npm packaging. CI uploads only the explicit command-evidence JSON, never a broad workspace directory.

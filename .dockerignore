@@ -1,13 +1,26 @@
-.git
-.env*
-secrets
-local
-artifacts
-exports
-target
-node_modules
+# Only service build inputs enter the root context.
+**
+!Cargo.toml
+!Cargo.lock
+!crates/
+!crates/**
+!migrations/
+!migrations/**
+# Defense in depth for ignored/private files inside allowed directories.
+**/.git
+**/.env*
+**/secrets
+**/local
+**/artifacts
+**/exports
+**/target
 **/node_modules
 **/dist
 **/__pycache__
-*.pem
-*.key
+**/coverage
+**/playwright-report
+**/test-results
+**/*.pem
+**/*.key
+**/.DS_Store
+/UNBOUGHT_ANALYTICS_ENGINE.md
