@@ -43,6 +43,8 @@ def main():
     template = json.loads(args.batch.read_text())
     if not 1 <= len(template["events"]) <= 1000:
         parser.error("batch must contain 1..1000 events")
+    if args.requests * len(template["events"]) > 100000:
+        parser.error("at most 100000 synthetic events per measurement")
     target = urlsplit(args.url)
     if target.hostname not in ("127.0.0.1", "localhost", "::1") or target.username or target.password or target.path != "/v1/ingest/server":
         parser.error("this acceptance driver only targets loopback synthetic server ingestion")
@@ -70,7 +72,7 @@ def main():
             status = "transport_error:TimeoutError"
         except (ValueError, KeyError) as error:
             status = "invalid_ack:" + type(error).__name__
-        return (time.perf_counter() - start) * 1000, status, accepted, len(body), outcomes
+        return (time.perf_counter() - start) * 1000, status, accepted, len(body), outcomes, events if status.startswith(("transport_error", "invalid_ack")) else []
     start = time.perf_counter()
     # executor.map has at most 100k bounded inputs, at most concurrency active HTTP calls.
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
@@ -80,16 +82,27 @@ def main():
     accepted = sum(row[2] for row in observations)
     accepted_latencies = [row[0] for row in observations if row[2] > 0]
     refused = sum(len(template["events"]) for row in observations if row[1] in ("429", "503"))
+    unknown_batches = [row[5] for row in observations if row[5]]
+    unknown_events = sum(len(batch) for batch in unknown_batches)
     outcomes = Counter()
     for row in observations:
         outcomes.update(row[4])
-    report = {"schema_version": 1, "recorded_at": datetime.now(timezone.utc).isoformat(), "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)), "platform": platform.platform(), "python": platform.python_version(), "cpu_count": os.cpu_count(), "workload": {"requests": args.requests, "concurrency": args.concurrency, "events_per_request": len(template["events"]), "timeout_seconds": args.timeout, "request_bytes": sum(row[3] for row in observations)}, "elapsed_seconds": elapsed, "responses": dict(Counter(row[1] for row in observations)), "accepted_events": accepted, "event_outcomes": dict(outcomes), "http_refused_events": refused, "accepted_request_latency_ms": {"p50": percentile(accepted_latencies,.5), "p95": percentile(accepted_latencies,.95), "p99": percentile(accepted_latencies,.99)}, "accepted_events_per_second": accepted / elapsed, "request_latency_ms": {"p50": percentile(latencies, .50), "p95": percentile(latencies, .95), "p99": percentile(latencies, .99), "max": max(latencies), "mean": statistics.mean(latencies)}, "limitations": ["Client elapsed latency includes JSON handling and connection establishment.", "No server RSS, database impact, or export memory is inferred from HTTP latency.", "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."]}
+    report = {"schema_version": 1, "recorded_at": datetime.now(timezone.utc).isoformat(), "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(), "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)), "platform": platform.platform(), "python": platform.python_version(), "cpu_count": os.cpu_count(), "workload": {"requests": args.requests, "concurrency": args.concurrency, "events_per_request": len(template["events"]), "timeout_seconds": args.timeout, "request_bytes": sum(row[3] for row in observations)}, "elapsed_seconds": elapsed, "responses": dict(Counter(row[1] for row in observations)), "accepted_events": accepted, "event_outcomes": dict(outcomes), "http_refused_events": refused, "unacknowledged_events": unknown_events, "accepted_request_latency_ms": {"p50": percentile(accepted_latencies,.5), "p95": percentile(accepted_latencies,.95), "p99": percentile(accepted_latencies,.99)}, "accepted_events_per_second": accepted / elapsed, "request_latency_ms": {"p50": percentile(latencies, .50), "p95": percentile(latencies, .95), "p99": percentile(latencies, .99), "max": max(latencies), "mean": statistics.mean(latencies)}, "limitations": ["Client elapsed latency includes JSON handling and connection establishment.", "No server RSS, database impact, or export memory is inferred from HTTP latency.", "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."]}
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    unknown_file=args.output.with_suffix(".unacknowledged.json")
+    descriptor=os.open(unknown_file,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+    with os.fdopen(descriptor,"w") as handle:
+        json.dump({"batches":unknown_batches},handle)
+    os.chmod(unknown_file,0o600)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(f"Measured {accepted} accepted events; evidence written to {args.output}")
-    accounted = sum(outcomes.values()) + refused == args.requests * len(template["events"])
+    accounted = sum(outcomes.values()) + refused + unknown_events == args.requests * len(template["events"])
     permitted = set(outcomes).issubset({"accepted", "rejected:rate_limited"})
-    return 0 if accepted == args.requests * len(template["events"]) or (args.allow_backpressure and accounted and permitted) else 1
+    if accepted == args.requests * len(template["events"]):
+        return 0
+    if args.allow_backpressure and accounted and permitted and not any(row[1].startswith("invalid_ack") for row in observations):
+        return 2 if unknown_events else 0  # Caller must reconcile/recover unknowns separately.
+    return 1
 
 
 if __name__ == "__main__":
