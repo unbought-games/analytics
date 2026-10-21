@@ -35,17 +35,26 @@ def main():
             parser.error("secret output parent directory must have mode 0700")
         output = os.open(args.secret_output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        request = urllib.request.Request(args.url.rstrip("/") + "/mcp", data=json.dumps({
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": args.tool, "arguments": arguments},
-        }).encode(), headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            result = json.load(response)
+        def call(payload):
+            request = urllib.request.Request(args.url.rstrip("/") + "/mcp", data=json.dumps(payload).encode(), headers={
+                "Authorization": "Bearer " + token, "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25"})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return None if response.status == 202 else json.load(response)
+        initialized = call({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "analytics-admin-example", "version": "1"}}})
+        if initialized.get("error"):
+            raise RuntimeError("MCP initialization failed")
+        call({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        result = call({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": args.tool, "arguments": arguments}})
         if output is not None:
             with os.fdopen(output, "w") as stream:
                 output = None
-                json.dump(result, stream, indent=2)
+                saved = result
+                if secret_operation and "token" in result.get("result", {}).get("structuredContent", {}):
+                    saved = {"credential": result["result"]["structuredContent"]}
+                json.dump(saved, stream, indent=2)
                 stream.flush()
                 os.fsync(stream.fileno())
             print("Response saved to protected file")

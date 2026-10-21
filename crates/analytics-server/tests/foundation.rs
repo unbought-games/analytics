@@ -393,6 +393,12 @@ async fn postgres_foundation_security_and_protocol() {
             "scoped source manager changed {field}"
         );
     }
+    let old_source_revision: i64 =
+        sqlx::query_scalar("SELECT revision FROM admin_objects WHERE kind='sources' AND id=$1")
+            .bind(source_id.to_string())
+            .fetch_one(&db)
+            .await
+            .unwrap();
     request(
         &state,
         &actor,
@@ -425,7 +431,22 @@ async fn postgres_foundation_security_and_protocol() {
     )
     .await
     .unwrap();
-    source["endpoint"] = json!("postgresql://user:synthetic-password@db.example/readonly");
+    let recreated_revision: i64 =
+        sqlx::query_scalar("SELECT revision FROM admin_objects WHERE kind='sources' AND id=$1")
+            .bind(source_id.to_string())
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert!(
+        recreated_revision > old_source_revision,
+        "delete/recreate must not revive old export generation"
+    );
+    let mut inline_secret_url = url::Url::parse("postgresql://db.example/readonly").unwrap();
+    inline_secret_url.set_username("synthetic-user").unwrap();
+    inline_secret_url
+        .set_password(Some(&Uuid::new_v4().to_string()))
+        .unwrap();
+    source["endpoint"] = json!(inline_secret_url.as_str());
     assert!(
         request(
             &state,
