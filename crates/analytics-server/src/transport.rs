@@ -73,12 +73,12 @@ pub fn router(
         .layer(middleware::from_fn_with_state(state, security_headers))
 }
 async fn security_headers(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    if let Some(origin) = request
-        .headers()
-        .get(header::ORIGIN)
-        .and_then(|v| v.to_str().ok())
+    if let Some(origin) = request.headers().get(header::ORIGIN)
         && request.uri().path() == "/mcp"
     {
+        let Ok(origin) = origin.to_str() else {
+            return ApiError::forbidden().into_response();
+        };
         let configured = url::Url::parse(&state.config.public_base_url)
             .ok()
             .map(|u| u.origin().ascii_serialization());
