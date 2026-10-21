@@ -1,0 +1,28 @@
+[package]
+name = "analytics-ingest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+analytics-core.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+sha2 = "0.10.9"
+url = "2.5.7"
+
+[dev-dependencies]
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }
+tower = { version = "0.5.2", features = ["util"] }
+http-body-util = "0.1.3"
+
+[[example]]
+name = "outbox"
+path = "../../examples/producers/outbox.rs"
