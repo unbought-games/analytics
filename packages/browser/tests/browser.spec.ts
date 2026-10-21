@@ -310,3 +310,9 @@ test('permanently lost landing does not poison later recovered observations with
   expect((await events(request)).at(-1).touch_id).toBeUndefined();
   expect((await coverage(page)).accepted).toBe(1);
 });
+
+test('same-origin config uses bodyless POST with browser-generated Origin and no referrer', async ({page, request}) => {
+  await init(page);
+  const config = (await state(request)).requests.find((r: any) => r.path === '/v1/ingest/config');
+  expect(config.method).toBe('POST'); expect(config.origin).toBe(defaults.endpoint); expect(config.referrer).toBeNull();
+});

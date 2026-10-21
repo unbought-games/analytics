@@ -7,6 +7,8 @@ import {fixtureServer} from '../tests/server.mjs';
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const name = `analytics-browser-smoke-${process.pid}`;
 const docker = (...args) => execFileSync('docker', args, {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+const sameOrigin = process.argv.includes('--same-origin') || process.env.BROWSER_SAME_ORIGIN === '1';
+let upstream;
 let ownedDatabase = false; let service; let browser; let server;
 try {
   let databaseURL = process.env.INGEST_TEST_DATABASE_URL;
@@ -19,7 +21,7 @@ try {
       catch { if (attempt === 50) throw new Error('Disposable database did not become ready'); await new Promise(resolve => setTimeout(resolve, 100)); }
     }
   }
-  server = fixtureServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  server = fixtureServer(sameOrigin ? {proxyTarget: () => upstream} : {}); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   service = spawn('cargo', ['run', '--quiet', '-p', 'analytics-ingest', '--example', 'browser_harness'], {
     cwd: root, env: {...process.env, INGEST_TEST_DATABASE_URL: databaseURL, BROWSER_TEST_ORIGIN: origin, BROWSER_SCHEMA_FILE: fileURLToPath(new URL('../../../examples/static-site/schemas.json', import.meta.url))}, stdio: ['ignore', 'pipe', 'pipe']
@@ -36,7 +38,11 @@ try {
     service.on('exit', code => { clearTimeout(timeout); if (code !== 0) reject(new Error(`Rust browser harness exited (${code}): ${errors}`)); });
     service.on('error', reject);
   });
+  upstream = configured.endpoint;
+  const browserConfig = {...configured, endpoint: sameOrigin ? origin : configured.endpoint};
   browser = await chromium.launch(); const page = await browser.newPage();
+  const policyRequests = [];
+  page.on('request', request => { if (/\/v1\/ingest\/(policy|config)\?/.test(request.url())) policyRequests.push(request.allHeaders().then(headers => ({method: request.method(), origin: headers.origin ?? null, body: request.postData(), referrer: headers.referer ?? null}))); });
   const batches = []; const acknowledgements = [];
   page.on('request', request => { if (request.url().endsWith('/v1/ingest/browser')) batches.push(request.postDataJSON()); });
   page.on('response', response => { if (response.url().endsWith('/v1/ingest/browser')) acknowledgements.push(response.json()); });
@@ -46,7 +52,9 @@ try {
     await window.client.ready;
     document.querySelector('#button').click(); history.pushState({}, '', '/next');
     await window.client.flush();
-  }, configured);
+  }, browserConfig).catch(async error => { console.error(JSON.stringify({sameOrigin, policyRequests: await Promise.all(policyRequests)})); throw error; });
+  const observedPolicy = await Promise.all(policyRequests);
+  assert.deepEqual(observedPolicy, [{method: 'POST', origin, body: null, referrer: null}], 'Browser supplies Origin on policy POST without SDK header forgery');
   const firstStats = await page.evaluate(() => window.client.getCoverage());
   assert.equal(firstStats.accepted, 3, 'Tagged landing, interaction and SPA view accepted in one ordered batch');
   assert.equal(firstStats.rejected, 0);
@@ -57,12 +65,12 @@ try {
   assert.equal(rows[1].campaign, null); assert.equal(rows[1].subject, null);
   const replay = await page.evaluate(async ({config, batch}) => {
     return (await fetch(config.endpoint + '/v1/ingest/browser', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Property-Token': config.token}, body: JSON.stringify(batch)})).json();
-  }, {config: configured, batch: batches[0]});
+  }, {config: browserConfig, batch: batches[0]});
   assert.deepEqual(replay.results.map(result => result.status), ['duplicate', 'duplicate', 'duplicate']);
   const forged = structuredClone(batches[0].events[0]); forged.event_id = crypto.randomUUID(); forged.subject = {namespace: 'account', id: 'forged'};
   const forgery = await page.evaluate(async ({config, event}) => {
     return (await fetch(config.endpoint + '/v1/ingest/browser', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Property-Token': config.token}, body: JSON.stringify({events: [event]})})).json();
-  }, {config: configured, event: forged});
+  }, {config: browserConfig, event: forged});
   assert.equal(forgery.results[0].status, 'rejected');
   const prior = await page.evaluate(() => window.client.getJourneyContext());
   await page.evaluate(async () => { window.client.reset(); document.querySelector('#button').click(); await window.client.flush(); });
@@ -71,7 +79,7 @@ try {
   const finalRows = await (await fetch(configured.endpoint + '/__test/events')).json();
   assert.equal(finalRows.length, 4); assert.equal(finalRows.at(-1).touch_id, null);
   for (const ack of await Promise.all(acknowledgements)) assert.ok(ack.results.every(result => ['accepted', 'duplicate', 'rejected'].includes(result.status)));
-  console.log(JSON.stringify({result: 'passed', service: 'analytics-ingest real PostgreSQL and Chromium', acceptedRows: finalRows.length, sameBatchCampaignReference: true, exactReplayDeduplicated: true, forgedBrowserSubjectRejected: true, resetRotatesJourney: true}, null, 2));
+  console.log(JSON.stringify({result: 'passed', service: 'analytics-ingest real PostgreSQL and Chromium', sameOrigin, policyRequests: observedPolicy, acceptedRows: finalRows.length, sameBatchCampaignReference: true, exactReplayDeduplicated: true, forgedBrowserSubjectRejected: true, resetRotatesJourney: true}, null, 2));
 } finally {
   await browser?.close();
   if (service && service.exitCode === null) { service.kill('SIGTERM'); await new Promise(resolve => service.once('exit', resolve)); }

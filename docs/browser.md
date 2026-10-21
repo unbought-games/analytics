@@ -52,7 +52,7 @@ schemas returned by `browserSchemas(propertyId)` using `admin_execute` (`put`,
 `examples/static-site/schemas.json` is the same synthetic schema array. The SDK
 uses `X-Property-Token`; never supply an admin, agent or server-ingestion credential.
 
-`init` retrieves `/v1/ingest/policy?property_id=...` before installing capture.
+`init` sends a bodyless POST to `/v1/ingest/config?property_id=...` before installing capture.
 It applies the current server profile ceiling, policy version, cross-property
 permission, attribution window, handoff audiences and preference-signal policy.
 Failure is closed: `ready` rejects and collection does not start. Explicit
@@ -313,7 +313,7 @@ collection occurred in these checks.
 
 ## Recorded validation and limitations
 
-The 27-test Chromium suite verifies automatic capture exactly once, repeated
+The 28-test Chromium suite verifies automatic capture exactly once, repeated
 bundle loading, SPA history, semantic controls/open shadow roots/keyboard activation,
 form contents exclusion, asynchronous disclosures/dialogs, URL/UTM sanitation,
 profile ceilings, GPC/DNT, withdrawal, shared-tab reset, identity-proof boundaries,
@@ -428,3 +428,27 @@ also checked. The dry run contains the same 16 allowlisted distribution files.
 This metadata-only change does not change runtime code; behavior tests were not
 rerun. Registry availability and publishing access were not claimed or tested,
 and no package was published.
+
+### Same-origin configuration regression
+
+Chromium reproduced a compatibility failure against the real Rust/PostgreSQL
+harness: the original same-origin GET config request omitted `Origin` under
+`referrerPolicy: 'no-referrer'`, so the service correctly rejected it and `ready`
+failed. The SDK now sends bodyless `POST /v1/ingest/config?property_id=...` using
+unchanged `mode: 'cors'`, `referrerPolicy: 'no-referrer'`, `credentials: 'omit'` and
+`redirect: 'error'`. It never sets the browser-forbidden Origin header.
+
+The ingestion prerequisite is commit `5706de6`: POST config/policy aliases use the
+same query, token and Origin validation as GET, with no writes or authorization
+relaxation. The ingestion-owned OpenAPI generator describes the POST query route
+without a request body; assembled contract generation must include that update.
+
+`npm run test:browser:service` now runs both cross-origin and same-origin cases.
+The latter uses a local reverse proxy that forwards the browser's headers unchanged
+except the upstream Host. Actual request headers are inspected through Playwright
+`request.allHeaders()` (the lightweight `headers()` view can omit security headers).
+Both runs passed against real Chromium, Rust and fresh disposable PostgreSQL,
+showing a concrete allowed Origin, absent Referer, null request body, four stored
+events, exact replay deduplication, forged-subject rejection and fresh reset IDs.
+`npm run check` and the 28-test browser suite also passed. The earlier GET failure
+was the expected reproducer, not a current limitation.
