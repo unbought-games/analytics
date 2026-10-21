@@ -364,3 +364,52 @@ events / 130,861 encoded bytes, counted 9,811 saturation drops and 190 exhausted
 observations, and drained to zero. Chromium retained-heap growth after GC was
 184,396 bytes for that page workload. The fixture's database/authentication scope
 and browser-engine limits above apply; these are not production measurements.
+
+### Focused A11 heap evidence
+
+The evidence-only followup runs with:
+
+```sh
+npm run benchmark:heap --workspace @independent-analytics/browser
+```
+
+`packages/browser/benchmarks/heap.json` stores every sample and all 20 runs: five
+fresh Chromium contexts each for normal/enabled, normal/uninitialized-control,
+outage/enabled and outage/uninitialized-control. It measures unchanged runtime
+revision `9c377bd` on Apple M2 Pro (12 logical CPUs), macOS arm64, Node 24.18.0 and
+Chromium 156.0.8078.4. The command completed successfully on October 21, 2026,
+including the existing event-count/encoded-byte bounds and normal accepted-count
+checks. No runtime change or new heap-size guarantee was introduced.
+
+The harness calls CDP `HeapProfiler.collectGarbage` before the baseline, then
+`Runtime.getHeapUsage` (`usedSize`). For the normal five-navigation/50-click
+workload it samples before and after each segment flush. For the 10,000-click
+outage it samples after every 100 clicks without forcing GC between chunks, then
+forces GC with the queue retained. Finally it exhausts bounded retries and forces
+GC again. The control loads the same bundle and page but never calls `init`.
+Sampling and control runs are interleaved; all sample arrays stay in the Node
+harness rather than being retained in the browser page.
+
+| Workload | Highest sampled whole-page JS heap (bytes) | Sampled peak growth over baseline, range (bytes) | Retained growth after forced GC, range (bytes) |
+| --- | ---: | ---: | ---: |
+| Normal, SDK enabled | 1,260,324 | 406,008–406,008 | 94,052–94,052 |
+| Normal, uninitialized control | 856,528 | 160,428–160,428 | 62,348–62,348 |
+| Outage, SDK enabled | 5,734,388 | 4,827,848–4,880,072 | 242,760–242,952 |
+| Outage, uninitialized control | 1,110,388 | 309,096–414,288 | 73,996–73,996 |
+
+The outage queue high-water mark in this instrumented workload was 189 events and
+130,732 encoded event bytes in every run. After draining and forced GC, enabled
+outage runs retained 175,520–175,712 bytes over their original baselines. That
+residual includes JIT, inspector, fetch and other browser bookkeeping; it is not a
+claim of leaked queue entries. The encoded payload bound and these observed heap
+numbers measure different things.
+
+These are whole-page V8 JavaScript heap measurements, including SDK and fixture
+objects, not isolated SDK allocation or process RSS. Native DOM/network memory is
+outside this metric. Sampled maxima can miss within-chunk transient peaks, so the
+reported peak is an observed lower bound, not a proven maximum. CDP observation
+changes scheduling and itself creates bookkeeping; automatic GC/JIT and allocator
+behavior create noise. Subtracting the control or dividing by retained events does
+not establish an exact queue-memory or per-event guarantee. This focused heap run
+is separate from the uninterrupted burst timing in `latest.json` and should not be
+used as its throughput measurement.
