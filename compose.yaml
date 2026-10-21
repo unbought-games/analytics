@@ -1,0 +1,89 @@
+# Disposable development resources only. Use tests/acceptance/stack.py to generate secrets.
+services:
+  postgres:
+    image: postgres:17.7-alpine
+    environment:
+      POSTGRES_USER: analytics_migration
+      POSTGRES_DB: analytics
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets: [database_password]
+    ports: ["127.0.0.1::5432"]
+    volumes: ["database:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analytics_migration -d analytics"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    mem_limit: 512m
+    cpus: 1.0
+  sources:
+    image: postgres:17.7-alpine
+    environment:
+      POSTGRES_USER: fixture_migration
+      POSTGRES_DB: synthetic
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets: [database_password]
+    ports: ["127.0.0.1::5432"]
+    volumes:
+      - source_database:/var/lib/postgresql/data
+      - ./tests/acceptance/fixtures/source.sql:/docker-entrypoint-initdb.d/source.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fixture_migration -d synthetic"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    mem_limit: 512m
+    cpus: 1.0
+  fixtures:
+    build: ./tests/acceptance/fixtures
+    ports: ["127.0.0.1::8081"]
+    environment:
+      OIDC_ISSUER: http://fixtures:8081
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz',timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+  engine:
+    profiles: [engine]
+    build: .
+    user: "${ANALYTICS_UID:-65532}:${ANALYTICS_GID:-65532}"
+    environment:
+      ANALYTICS_DATABASE_URL_FILE: /run/secrets/engine_database_url
+      ANALYTICS_PUBLIC_BASE_URL: ${ANALYTICS_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
+      ANALYTICS_SECRET_DIRECTORY: /run/analytics/secrets
+      ANALYTICS_EXPORT_DIRECTORY: /var/lib/analytics/exports
+      ANALYTICS_OIDC_ISSUER: http://fixtures:8081
+    secrets: [engine_database_url]
+    volumes:
+      - ${ANALYTICS_STACK_DIR}/exports:/var/lib/analytics/exports
+      - ${ANALYTICS_STACK_DIR}/secrets:/run/analytics/secrets
+    ports: ["127.0.0.1::8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      fixtures: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 2.0
+secrets:
+  engine_database_url:
+    file: ${ANALYTICS_STACK_DIR:?run stack.py first}/engine_database_url
+  database_password:
+    file: ${ANALYTICS_STACK_DIR:?run stack.py first}/database_password
+volumes:
+  database:
+  source_database:

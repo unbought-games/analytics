@@ -1,0 +1,39 @@
+name: analytics checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: analytics-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt && rustup default 1.99.0
+      - name: Install browser dependencies
+        run: npm ci
+      - name: Build and static checks
+        run: make build check
+      - name: Complete disposable acceptance
+        run: make acceptance
+      - name: Upload non-secret command evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-command-evidence
+          path: artifacts/acceptance/commands.json
+          if-no-files-found: warn
+          retention-days: 7
