@@ -92,6 +92,20 @@ class FixtureTests(unittest.TestCase):
                 self.request("/api/v1/query?query=" + query)
             self.assertEqual(raised.exception.code, status)
 
+    def test_sentry_event_detail_requires_explicit_project_and_event(self):
+        for path in (
+            "/api/0/projects/synthetic/other/events/0123456789abcdef0123456789abcdef/",
+            "/api/0/projects/other/game/events/0123456789abcdef0123456789abcdef/",
+            "/api/0/projects/synthetic/game/events/latest/",
+            "/api/0/issues/101/events/0123456789abcdef0123456789abcdef/",
+        ):
+            with self.assertRaises(HTTPError) as raised:
+                self.request(path, auth=True)
+            self.assertEqual(raised.exception.code, 403)
+        with self.assertRaises(HTTPError) as raised:
+            self.request("/api/0/projects/synthetic/game/events/0123456789abcdef0123456789abcdef/")
+        self.assertEqual(raised.exception.code, 401)
+
     def test_sentry_pagination_scope_and_sensitive_fixture(self):
         path = "/api/0/organizations/synthetic/issues/"
         _, rows, headers = self.request(path, auth=True)
@@ -100,7 +114,9 @@ class FixtureTests(unittest.TestCase):
         _, rows, headers = self.request(path + "?cursor=1:0:0", auth=True)
         self.assertEqual(rows[0]["id"], "102")
         self.assertIn('results="false"', headers["Link"])
-        _, event, _ = self.request("/api/0/issues/101/events/event-101/", auth=True)
+        _, event, _ = self.request("/api/0/projects/synthetic/game/events/0123456789abcdef0123456789abcdef/", auth=True)
+        self.assertEqual(event["projectID"], 101)
+        self.assertEqual(event["eventID"], "0123456789abcdef0123456789abcdef")
         self.assertIn("user", event)  # Adapter must redact; fixture intentionally includes it.
         with self.assertRaises(HTTPError) as raised:
             self.request("/api/0/organizations/other/issues/", auth=True)
