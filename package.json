@@ -6,10 +6,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @independent-analytics/browser",
-    "check": "npm run check --workspace @independent-analytics/browser",
-    "test:browser": "npm run test --workspace @independent-analytics/browser",
-    "benchmark:browser": "npm run benchmark --workspace @independent-analytics/browser",
-    "test:browser:service": "npm run test:service --workspace @independent-analytics/browser"
+    "build": "npm run build --workspace ./packages/browser",
+    "check": "npm run check --workspace ./packages/browser",
+    "test:browser": "npm run test --workspace ./packages/browser",
+    "benchmark:browser": "npm run benchmark --workspace ./packages/browser",
+    "test:browser:service": "npm run test:service --workspace ./packages/browser"
   }
 }

@@ -3,7 +3,7 @@
 Framework-neutral, zero runtime dependency SDK for the independently hosted analytics engine. ESM, CommonJS and a standalone `Analytics` browser global are built from the same TypeScript source. The package uses an explicit `files` allowlist; no local server configuration is packaged.
 
 ```ts
-import {init} from '@independent-analytics/browser';
+import {init} from '@unbought/analytics';
 const analytics = init({
   endpoint: 'https://analytics.example',
   propertyId: '11111111-1111-4111-8111-111111111111',
