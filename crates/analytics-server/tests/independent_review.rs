@@ -312,7 +312,9 @@ async fn composed_source_secret_isolation_and_definition_lifecycle() {
             .is_success()
     );
     assert!(!reproduce().send().await.unwrap().status().is_success());
-    // Deleting/recreating a source must never revive a previously issued artifact.
+    // A deleted source must not poison the worker queue for unrelated sources.
+    worker.abort();
+    let orphan = create(&client, &base, token, query(a)).await;
     assert!(
         admin(&client, &base, owner, "sources", "delete", a, None)
             .await
@@ -329,6 +331,19 @@ async fn composed_source_secret_isolation_and_definition_lifecycle() {
             .status()
             .is_success()
     );
+    let unrelated = create(&client, &base, owner, query(b)).await;
+    let worker = analytics_query::start_worker(state.clone());
+    assert_eq!(
+        completed(&client, &base, owner, unrelated).await["status"],
+        "complete"
+    );
+    let orphan_status: String = sqlx::query_scalar("SELECT status FROM export_jobs WHERE id=$1")
+        .bind(orphan)
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(orphan_status, "failed");
+    // Recreating a source must never revive a previously issued artifact.
     assert!(
         admin(
             &client,
