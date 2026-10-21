@@ -1,0 +1,8 @@
+CREATE TABLE installation (id boolean PRIMARY KEY DEFAULT true CHECK(id), initialized_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE principals (id uuid PRIMARY KEY, name text NOT NULL, kind text NOT NULL CHECK(kind IN ('human','agent','service')), enabled boolean NOT NULL DEFAULT true, delegated_by uuid REFERENCES principals(id), created_at timestamptz NOT NULL DEFAULT now(), CHECK (delegated_by IS NULL OR delegated_by <> id));
+CREATE TABLE grants (principal_id uuid NOT NULL REFERENCES principals(id) ON DELETE CASCADE, action text NOT NULL, resource_kind text NOT NULL, resource_id text NOT NULL, PRIMARY KEY(principal_id,action,resource_kind,resource_id));
+CREATE TABLE credentials (id uuid PRIMARY KEY, principal_id uuid NOT NULL REFERENCES principals(id), name text NOT NULL, verifier bytea UNIQUE NOT NULL, expires_at timestamptz NOT NULL, revoked_at timestamptz, ceiling jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE oidc_bindings (issuer text NOT NULL, subject text NOT NULL, principal_id uuid NOT NULL REFERENCES principals(id), PRIMARY KEY(issuer,subject));
+CREATE TABLE admin_objects (kind text NOT NULL, id text NOT NULL, scope_kind text NOT NULL, scope_id text NOT NULL, value jsonb NOT NULL, revision bigint NOT NULL DEFAULT 1, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(kind,id));
+CREATE TABLE audit_records (sequence bigserial PRIMARY KEY, principal_id uuid, delegated_by uuid, action text NOT NULL, target text NOT NULL, outcome text NOT NULL, occurred_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX audit_records_time ON audit_records(occurred_at);

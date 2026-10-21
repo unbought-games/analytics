@@ -1,0 +1,22 @@
+[workspace]
+members = ["crates/analytics-core", "crates/analytics-server"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.88"
+
+[workspace.dependencies]
+analytics-core = { path = "crates/analytics-core" }
+async-trait = "0.1.89"
+axum = "0.8.9"
+chrono = { version = "0.4.42", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+schemars = { version = "1.0.4", features = ["chrono04", "uuid1"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
+tokio = { version = "1.48.0", features = ["full"] }
+uuid = { version = "1.18.1", features = ["serde", "v4"] }
+thiserror = "2.0.17"
