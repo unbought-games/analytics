@@ -111,8 +111,15 @@ def grant_runtime(state, database="analytics"):
     compose(state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", database, "-v", "ON_ERROR_STOP=1", input="GRANT USAGE ON SCHEMA public TO analytics_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO analytics_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO analytics_runtime; REVOKE INSERT,UPDATE,DELETE ON _sqlx_migrations FROM analytics_runtime;", text=True, stdout=subprocess.DEVNULL)
 
 
-def start_engine(state):
+def start_engine(state, recreate_dependencies=False):
     compose(state, "--profile", "engine", "build", "engine")
+    # Compose may recreate a dependency when image/config metadata changes.
+    # Finalize those containers before deriving the advertised dynamic host port.
+    dependency_args=["--profile","engine","up","--detach","--wait","--wait-timeout","90"]
+    if recreate_dependencies:
+        dependency_args.append("--force-recreate")
+    compose(state, *dependency_args, "fixtures", "postgres")
+    fixture_id=compose(state,"ps","-q","fixtures",capture_output=True,text=True).stdout.strip()
     compose(state, "--profile", "engine", "run", "--rm", "--no-deps", "migrate")
     grant_runtime(state)
     handoff = Path(state["directory"]) / "secrets" / "bootstrap.json"
@@ -120,7 +127,13 @@ def start_engine(state):
         compose(state, "--profile", "engine", "run", "--rm", "--no-deps", "engine", "bootstrap", "--owner", "synthetic-owner", "--agent", "synthetic-agent", "--output", "/run/analytics/secrets/bootstrap.json")
     state["public_base_url"] = "http://" + endpoint(state, "fixtures", 8080)
     (Path(state["directory"]) / "state.json").write_text(json.dumps(state))
-    compose(state, "--profile", "engine", "up", "--detach", "--wait", "--wait-timeout", "90", "engine")
+    compose(state, "--profile", "engine", "up", "--no-deps", "--detach", "--wait", "--wait-timeout", "90", "engine")
+    if compose(state,"ps","-q","fixtures",capture_output=True,text=True).stdout.strip()!=fixture_id or "http://"+endpoint(state,"fixtures",8080)!=state["public_base_url"]:
+        raise RuntimeError("Engine dependency or advertised host port changed during startup")
+    from urllib.request import urlopen
+    with urlopen(state["public_base_url"]+"/readyz",timeout=5) as response:
+        if response.status!=200:
+            raise RuntimeError("Engine is not reachable through its advertised host endpoint")
     print("Synthetic engine:", state["public_base_url"])
 
 
