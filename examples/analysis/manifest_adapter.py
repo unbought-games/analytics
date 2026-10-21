@@ -5,10 +5,13 @@ Rows follow cohort-input/1, a query result schema, not a universal game schema.
 import hashlib
 import json
 from pathlib import Path
-from metrics import sample_fraction, utc
+from metrics import sample_fraction, stamp, utc
+from normalize import normalize_acquisition
 
 DATASETS = ("acquisition", "identity_map", "memberships", "activity")
 ROW_FIELDS = {
+    "acquisition_touches": {"touch_id": str, "property": str, "visit_id": (str, type(None)),
+                            "campaign": (str, type(None)), "occurred_at": str, "linkage_permitted": bool},
     "acquisition": {"event_id": str, "kind": str, "campaign": (str, type(None)),
                     "occurred_at": str, "authoritative": bool, "property": str,
                     "visit_id": (str, type(None))},
@@ -72,6 +75,18 @@ def validate_row(name, row):
                 raise ValueError("signup needs attribution rule provenance")
             if row["campaign"] is not None and not isinstance(row.get("touch_id"), str):
                 raise ValueError("attributed signup needs selected touch provenance")
+    if name == "acquisition" and any(k in row for k in ("attributed_visit_property", "attributed_visit_id", "attributed_visit_verified")):
+        if type(row.get("attributed_visit_verified")) is not bool:
+            raise ValueError("attributed visit requires explicit verification status")
+        for key in ("attributed_visit_property", "attributed_visit_id"):
+            if key not in row or not isinstance(row[key], (str, type(None))):
+                raise ValueError("invalid attributed visit scope")
+        if row["attributed_visit_verified"]:
+            if (row["kind"] != "signup" or row["authoritative"] is not True
+                    or not isinstance(row.get("touch_id"), str)
+                    or not isinstance(row.get("attribution_rule"), str)
+                    or not all(isinstance(row[k], str) and row[k] for k in ("attributed_visit_property", "attributed_visit_id"))):
+                raise ValueError("verified attributed visit requires authoritative selected-touch evidence")
     if name == "identity_map":
         if row["status"] not in ("verified", "unmapped", "deleted"):
             raise ValueError("invalid mapping status")
@@ -107,9 +122,12 @@ def load_manifest(path, cutoff):
     if bundle["format_version"] != "cohort-bundle/1":
         raise ValueError("unsupported analysis bundle version")
     data, metadata, sources = {}, {}, []
+    origin_visits, origin_touches, origin_metadata = [], [], []
     for binding in bundle["inputs"]:
-        name = binding["name"]
-        if name not in DATASETS or name in data:
+        role = binding["name"]
+        name = "acquisition" if role == "acquisition_visits" else role
+        extra = role in ("acquisition_visits", "acquisition_touches")
+        if (name not in DATASETS and name != "acquisition_touches") or (not extra and name in data):
             raise ValueError("unknown or duplicate dataset binding")
         manifest_path = local_file(path.parent, binding["manifest_file"])
         manifest_raw = manifest_path.read_bytes()
@@ -170,13 +188,32 @@ def load_manifest(path, cutoff):
                       "sample_fraction": coverage["sample_rate"], "limitations": coverage["limitations"]}
         if complete:
             validate_coverage(normalized)
-        data[name] = rows
-        metadata[name] = {"name": name, "coverage": normalized,
-                          "status": "complete" if manifest["status"] == "complete" and manifest["continuation"] is None else "partial"}
-        sources.append({"name": name, "manifest_file": binding["manifest_file"],
+        meta = {"name": name, "coverage": normalized,
+                "status": "complete" if manifest["status"] == "complete" and manifest["continuation"] is None else "partial"}
+        if extra:
+            (origin_visits if role == "acquisition_visits" else origin_touches).extend(rows)
+            origin_metadata.append(meta)
+        else:
+            data[name], metadata[name] = rows, meta
+        sources.append({"name": role, "manifest_file": binding["manifest_file"],
                         "manifest_sha256": digest(manifest_raw), "manifest": manifest})
     if set(data) != set(DATASETS):
         raise ValueError("all four named datasets are required, even when unavailable")
+    normalization = None
+    if origin_metadata:
+        data["acquisition"], normalization = normalize_acquisition(data["acquisition"], origin_visits, origin_touches)
+        inputs = [metadata["acquisition"], *origin_metadata]
+        complete = all(m["status"] == "complete" and m["coverage"]["status"] == "complete" for m in inputs)
+        if complete:
+            start = max(utc(m["coverage"]["start"]) for m in inputs)
+            end = min(utc(m["coverage"]["end"]) for m in inputs)
+            complete = start <= end
+            if complete:
+                metadata["acquisition"]["coverage"].update(start=stamp(start), end=stamp(end))
+        if not complete:
+            metadata["acquisition"]["status"] = "partial"
     provenance = {"manifest_file": path.name, "manifest_sha256": digest(raw),
                   "format_version": bundle["format_version"], "inputs": sources}
+    if normalization is not None:
+        provenance["normalization"] = normalization
     return data, metadata, provenance

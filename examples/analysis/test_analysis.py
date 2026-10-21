@@ -11,6 +11,7 @@ import unittest
 
 from manifest_adapter import digest, load_manifest, parse_json, utc
 from metrics import calculate, WINDOWS
+from normalize import normalize_acquisition
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = ROOT / "tests/fixtures/cohorts"
@@ -96,6 +97,50 @@ class CohortTests(unittest.TestCase):
             self.assertEqual(self.report()["signup_conversion"]["numerator"], expected)
         visit["linkage_permitted"] = False
         self.assertIsNone(self.report()["signup_conversion"]["rate"])
+
+    def test_event_ids_are_property_scoped(self):
+        self.solo()
+        signup = self.data["acquisition"][0]
+        self.data["acquisition"].append(dict(signup, property="second-property", subject="second-account"))
+        self.assertEqual(self.report()["acquired_accounts"], 2)
+        visit = {"event_id": signup["event_id"], "kind": "visit", "campaign": generator.CAMPAIGN,
+                 "occurred_at": generator.timestamp(generator.START), "property": "origin-property",
+                 "visit_id": "shared-visit", "visitor_namespace": "origin/browser", "visitor_id": "browser",
+                 "linkage_permitted": True}
+        self.data["acquisition"] += [visit, dict(visit, property="another-origin")]
+        self.assertEqual(self.report()["observed_visits"], 2)
+
+    def test_explicit_attributed_visit_keeps_signup_scope(self):
+        self.solo()
+        signup = self.data["acquisition"][0]
+        visit = {"event_id": "landing", "kind": "visit", "campaign": "landing-campaign",
+                 "occurred_at": generator.timestamp(generator.START), "property": "origin",
+                 "visit_id": "origin-visit", "visitor_namespace": "origin/browser", "visitor_id": "browser",
+                 "linkage_permitted": True}
+        self.data["acquisition"].append(visit)
+        signup.update(property="identity", visit_id="auth-visit", attributed_visit_property="origin",
+                      attributed_visit_id="origin-visit", attributed_visit_verified=True)
+        result = calculate(self.data, self.meta, CUTOFF)
+        self.assertEqual(campaign(result, "landing-campaign")["signup_conversion"]["numerator"], 1)
+        self.assertEqual(campaign(result)["acquired_accounts"], 1)
+        self.assertEqual(signup["property"], "identity")
+        self.assertEqual(signup["visit_id"], "auth-visit")
+        signup["attributed_visit_verified"] = False
+        self.assertEqual(campaign(calculate(self.data, self.meta, CUTOFF), "landing-campaign")["signup_conversion"]["numerator"], 0)
+
+    def test_observed_conversion_is_visible_before_maturity_without_invented_coverage(self):
+        self.solo()
+        signup = self.data["acquisition"][0]
+        visit = {"event_id": "landing", "kind": "visit", "campaign": generator.CAMPAIGN,
+                 "occurred_at": generator.timestamp(generator.START), "property": signup["property"],
+                 "visit_id": signup["visit_id"], "visitor_namespace": "portal/browser", "visitor_id": "browser",
+                 "linkage_permitted": True}
+        self.data["acquisition"].append(visit)
+        self.meta["acquisition"]["coverage"]["status"] = "partial"
+        report = self.report(generator.timestamp(generator.START + timedelta(hours=2)))
+        self.assertEqual(report["observed_converted_visits"], 1)
+        self.assertIsNone(report["signup_conversion"]["rate"])
+        self.assertEqual(report["signup_conversion"]["exclusions"], {"immature": 1})
 
     def test_duplicate_rows_do_not_change_metrics(self):
         expected = self.report()
@@ -210,6 +255,62 @@ class CohortTests(unittest.TestCase):
         self.assertEqual(self.report()["retention"]["D1"]["numerator"], 1)
 
 
+class NormalizationTests(unittest.TestCase):
+    def setUp(self):
+        self.signup = {"event_id": "same-event", "property": "identity", "visit_id": "auth-visit",
+                       "kind": "signup", "authoritative": True, "campaign": "selected-campaign",
+                       "occurred_at": "2026-01-01T02:00:00Z", "touch_id": "selected-touch"}
+        self.visit = {"event_id": "same-event", "property": "portal", "visit_id": "landing-visit",
+                      "kind": "visit", "campaign": "landing-campaign", "occurred_at": "2026-01-01T00:00:00Z",
+                      "linkage_permitted": True}
+        self.touch = {"touch_id": "selected-touch", "property": "portal", "visit_id": "landing-visit",
+                      "campaign": "selected-campaign", "occurred_at": "2026-01-01T01:00:00Z",
+                      "linkage_permitted": True}
+
+    def normalize(self, visits=None, touches=None):
+        return normalize_acquisition([self.signup], [self.visit] if visits is None else visits,
+                                     [self.touch] if touches is None else touches)
+
+    def test_exact_touch_to_visit_join_preserves_original_facts(self):
+        rows, proof = self.normalize()
+        linked = rows[0]
+        self.assertEqual((linked["property"], linked["visit_id"]), ("identity", "auth-visit"))
+        self.assertEqual((linked["attributed_visit_property"], linked["attributed_visit_id"]), ("portal", "landing-visit"))
+        self.assertEqual(rows[1]["campaign"], "landing-campaign")
+        self.assertEqual(proof["matched_signups"], 1)
+        self.assertNotIn("attributed_visit_verified", self.signup)
+
+    def test_multiple_touches_do_not_manufacture_visits(self):
+        rows, proof = self.normalize(touches=[self.touch, dict(self.touch, touch_id="another-touch")])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(proof["matched_signups"], 1)
+
+    def test_missing_disallowed_or_wrong_scope_cannot_link(self):
+        for visits, touches in (([], [self.touch]), ([self.visit], []),
+                                ([dict(self.visit, property="another-property")], [self.touch]),
+                                ([dict(self.visit, linkage_permitted=False)], [self.touch]),
+                                ([self.visit], [dict(self.touch, linkage_permitted=False)]),
+                                ([self.visit], [dict(self.touch, visit_id=None)])):
+            with self.subTest(visits=visits, touches=touches):
+                rows, proof = self.normalize(visits, touches)
+                self.assertNotIn("attributed_visit_verified", rows[0])
+                self.assertEqual(proof["unresolved_selected_touches"], 1)
+
+    def test_ambiguous_touch_and_inconsistent_clocks_or_campaign_fail(self):
+        cases = [[self.touch, dict(self.touch, property="other")],
+                 [dict(self.touch, occurred_at="2026-01-01T03:00:00Z")],
+                 [dict(self.touch, occurred_at="2025-12-31T23:00:00Z")],
+                 [dict(self.touch, campaign="wrong")]]
+        for touches in cases:
+            with self.subTest(touches=touches), self.assertRaises(ValueError):
+                self.normalize(touches=touches)
+
+    def test_duplicate_visits_and_touches_are_idempotent(self):
+        rows, proof = self.normalize(visits=[self.visit, dict(self.visit)], touches=[self.touch, dict(self.touch)])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(proof["matched_signups"], 1)
+
+
 class FileTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -225,6 +326,51 @@ class FileTests(unittest.TestCase):
         value = json.loads(path.read_text())
         mutation(value)
         path.write_text(json.dumps(value))
+
+    def journey_bundle(self):
+        rows = generator.manufacture()
+        visits = [r for r in rows["acquisition"] if r["kind"] == "visit"]
+        rows["acquisition"] = [r for r in rows["acquisition"] if r["kind"] != "visit"]
+        touches = [dict(touch_id=r["event_id"], property=r["property"], visit_id=r["visit_id"],
+                        campaign=r["campaign"], occurred_at=r["occurred_at"], linkage_permitted=r["linkage_permitted"])
+                   for r in visits if r["campaign"] is not None]
+        for row in rows["acquisition"]:
+            row.update(property="identity", visit_id="auth-visit")
+        rows["acquisition_visits"], rows["acquisition_touches"] = visits, touches
+        generator.write_export(self.path, rows)
+
+    def test_local_normalization_retains_all_original_manifest_references(self):
+        self.journey_bundle()
+        data, metadata, provenance = self.load()
+        self.assertEqual(len(provenance["inputs"]), 6)
+        self.assertEqual(provenance["normalization"]["matched_signups"], 11)
+        self.assertEqual(campaign(calculate(data, metadata, CUTOFF))["signup_conversion"]["rate"], 9 / 10)
+        for source in provenance["inputs"]:
+            original = (self.path / source["manifest_file"]).read_bytes()
+            self.assertEqual(source["manifest_sha256"], digest(original))
+            self.assertEqual(source["manifest"], json.loads(original))
+        output = self.path / "journey-report"
+        subprocess.run([sys.executable, str(ROOT / "examples/analysis/analyze"), "--manifest", str(self.path / "manifest.json"),
+                        "--cutoff", CUTOFF, "--output", str(output)], check=True, capture_output=True)
+        report = json.loads((output / "campaign-report.json").read_text())
+        self.assertEqual(campaign(report)["observed_converted_visits"], 10)
+        self.assertEqual(report["provenance"]["normalization"]["matched_signups"], 11)
+        self.assertNotIn("attributed_visit_verified", (self.path / "acquisition.jsonl").read_text())
+        for row in data["acquisition"]:
+            if row["kind"] == "signup":
+                self.assertEqual((row["property"], row["visit_id"]), ("identity", "auth-visit"))
+
+    def test_origin_export_incomplete_history_cannot_create_conclusive_rate(self):
+        self.journey_bundle()
+        self.mutate("acquisition_visits.manifest.json", lambda m: m["coverage"].update(history_start=None))
+        data, metadata, _ = self.load()
+        self.assertIsNone(campaign(calculate(data, metadata, CUTOFF))["signup_conversion"]["rate"])
+
+    def test_origin_export_integrity_is_verified(self):
+        self.journey_bundle()
+        (self.path / "acquisition_touches.jsonl").write_text("{}\n")
+        with self.assertRaisesRegex(ValueError, "integrity"):
+            self.load()
 
     def test_reproducible_fixture_bytes(self):
         for expected in (FIXTURE_ROOT / "manufactured").iterdir():
