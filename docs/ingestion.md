@@ -268,3 +268,29 @@ through a shared one-connection pool. The single skipped long recovery suite had
 already passed the full run. Clippy passed. Full-service A11 budgets must be judged
 by rerunning the unchanged integration benchmark; this module check alone does not
 establish a latency budget result.
+
+The unchanged A11 service benchmark subsequently passed on clean integrated
+revision `8d727d2`, incorporating ingestion optimization `92734ca`. Integration
+reran `benchmarks/service.py` with the same native release build, PostgreSQL
+one-CPU / 512 MiB limits, 16-request global admission and original budgets.
+No latency or memory threshold was increased.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Normal accepted events | 5,000 | 5,000 |
+| Normal duration | 27.119 s | 1.630 s |
+| Normal throughput | 184 events/s | 3,067.5 events/s |
+| Normal request p50 | 331.6 ms | 24.28 ms |
+| Normal request p95 | 807.5 ms | 35.66 ms |
+| Normal request p99 | 1,261.5 ms | 54.91 ms |
+| Burst accepted-request p95 | 6,426.7 ms | 428.1 ms |
+
+Normal workload remained 250 batches × 20 events at concurrency four. Burst
+remained 700 batches × 100 events at concurrency 32: 12,400 events were accepted
+and 57,600 were explicitly refused with HTTP 503 backpressure over 2.325 seconds.
+Refused attempts are not successful ingestion or silently lost accepted facts;
+durable producers retain and retry them. Reported service RSS peaks were about
+17.04 MB for normal traffic and 25.28 MB for the burst. The original normal p95
+250 ms, p99 1,000 ms, RSS, export and explicit-backpressure gates all passed.
+These are controlled local measurements, not production throughput guarantees;
+integration owns the raw report and final assembled functional acceptance rerun.
