@@ -1,0 +1,116 @@
+{
+  "continuation": null,
+  "coverage": {
+    "complete": true,
+    "history_end": "2026-07-01T01:00:00Z",
+    "history_start": "2025-11-22T00:00:00Z",
+    "limitations": [],
+    "policy_versions": [
+      1
+    ],
+    "sample_rate": 1
+  },
+  "created_at": "2026-07-01T02:00:00Z",
+  "datasets": [
+    {
+      "bytes": 3521,
+      "columns": [
+        {
+          "data_type": "string",
+          "description": null,
+          "name": "application",
+          "namespace": null,
+          "nullable": false,
+          "unit": null
+        },
+        {
+          "data_type": "string",
+          "description": "UTC wall clock",
+          "name": "enrolled_at",
+          "namespace": null,
+          "nullable": false,
+          "unit": null
+        },
+        {
+          "data_type": "object",
+          "description": null,
+          "name": "history",
+          "namespace": null,
+          "nullable": false,
+          "unit": null
+        },
+        {
+          "data_type": "string",
+          "description": null,
+          "name": "local_account_id",
+          "namespace": "application/local-account",
+          "nullable": false,
+          "unit": null
+        },
+        {
+          "data_type": "string",
+          "description": null,
+          "name": "player_id",
+          "namespace": "application/world/player",
+          "nullable": false,
+          "unit": null
+        },
+        {
+          "data_type": "string",
+          "description": null,
+          "name": "world",
+          "namespace": null,
+          "nullable": false,
+          "unit": null
+        }
+      ],
+      "download_url": "https://analytics.example/v1/exports/cdbc5bae-2546-5919-8823-39a9fec7decb/files/memberships.jsonl",
+      "file_name": "memberships.jsonl",
+      "media_type": "application/x-ndjson",
+      "name": "memberships",
+      "ordering": [
+        "canonical JSON row (lexical)"
+      ],
+      "row_count": 11,
+      "sha256": "13329d3351384b97b18bad0beeaf9087fda56281dc38c1592c62f082173b6007"
+    }
+  ],
+  "expires_at": "2027-07-01T01:00:00Z",
+  "export_id": "cdbc5bae-2546-5919-8823-39a9fec7decb",
+  "format_version": "1",
+  "provenance": {
+    "environment": "fixture",
+    "null_semantics": "unknown or not applicable, never zero",
+    "producer": "deterministic-cohort-generator/1",
+    "property": "portal",
+    "snapshot_semantics": "independent source reads",
+    "source": "synthetic-memberships",
+    "timestamp_convention": "UTC wall clocks; logical milliseconds separate"
+  },
+  "query": {
+    "budget": {
+      "max_bytes": 1048576,
+      "max_concurrency": 1,
+      "max_rows": 10000,
+      "timeout_ms": 1000
+    },
+    "cutoff": "2026-07-01T01:00:00Z",
+    "definition_version": "cohort-input/1",
+    "kind": "postgres",
+    "parameters": {},
+    "property_id": null,
+    "query": {
+      "sql": "SELECT * FROM synthetic_memberships"
+    },
+    "source_id": "5c9dbe14-e0d8-56c7-be8e-0fee2ed24dfa",
+    "window": {
+      "end": "2026-07-01T01:00:00Z",
+      "start": "2025-11-22T00:00:00Z"
+    }
+  },
+  "source_read_at": [
+    "2026-07-01T01:30:00Z"
+  ],
+  "status": "complete",
+  "watermark": "synthetic-receipt/1000"
+}
