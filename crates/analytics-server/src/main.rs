@@ -1,7 +1,7 @@
 use analytics_core::*;
 use analytics_server::{MIGRATOR, auth::DatabaseAuthorization, bootstrap, oidc::OidcVerifier};
 use clap::{Parser, Subcommand};
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use uuid::Uuid;
 #[derive(Parser)]
 #[command(
@@ -146,8 +146,30 @@ async fn run() -> ApiResult<()> {
                         "ANALYTICS_MAX_IN_FLIGHT_REQUESTS must be an integer in 1..4096",
                     )
                 })?;
-            let app =
-                analytics_server::router_with_admission(state, extensions, oidc, max_in_flight)?;
+            let request_timeout = env("ANALYTICS_REQUEST_TIMEOUT_MS", "30000")
+                .parse::<u64>()
+                .map_err(|_| {
+                    ApiError::bad_request(
+                        "ANALYTICS_REQUEST_TIMEOUT_MS must be a positive integer at most 600000",
+                    )
+                })?;
+            let stream_timeout = env("ANALYTICS_STREAM_TIMEOUT_MS", "300000")
+                .parse::<u64>()
+                .map_err(|_| {
+                    ApiError::bad_request(
+                        "ANALYTICS_STREAM_TIMEOUT_MS must be a positive integer at most 3600000",
+                    )
+                })?;
+            let app = analytics_server::router_with_admission_limits(
+                state,
+                extensions,
+                oidc,
+                analytics_server::AdmissionLimits {
+                    max_in_flight,
+                    request_timeout: Duration::from_millis(request_timeout),
+                    stream_timeout: Duration::from_millis(stream_timeout),
+                },
+            )?;
             let listener = tokio::net::TcpListener::bind(bind)
                 .await
                 .map_err(|_| ApiError::internal())?;

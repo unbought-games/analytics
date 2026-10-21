@@ -38,7 +38,24 @@ pub fn router_with_admission(
     oidc: Option<OidcVerifier>,
     max_in_flight: usize,
 ) -> ApiResult<Router> {
-    let admission = crate::admission::Admission::new(max_in_flight)?;
+    router_with_admission_limits(
+        state,
+        extensions,
+        oidc,
+        crate::AdmissionLimits {
+            max_in_flight,
+            ..Default::default()
+        },
+    )
+}
+
+pub fn router_with_admission_limits(
+    state: AppState,
+    extensions: Vec<Arc<dyn Extension>>,
+    oidc: Option<OidcVerifier>,
+    limits: crate::AdmissionLimits,
+) -> ApiResult<Router> {
+    let admission = crate::admission::Admission::with_limits(limits)?;
     let mut registered = std::collections::HashSet::from([
         "identity".to_string(),
         "status".to_string(),
