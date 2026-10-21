@@ -51,7 +51,12 @@ pub async fn create(
     }
     execution::validate_request(state, &request.query).await?;
     let revision = configuration_revision(state, &request.query).await?;
-    let queued:i64=sqlx::query_scalar("SELECT count(*) FROM export_jobs WHERE owner_principal_id=$1 AND status IN ('queued','running')").bind(actor.principal_id).fetch_one(&state.db).await?;
+    let mut tx = state.db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+        .bind(format!("export-admission:{}", actor.principal_id))
+        .execute(&mut *tx)
+        .await?;
+    let queued:i64=sqlx::query_scalar("SELECT count(*) FROM export_jobs WHERE owner_principal_id=$1 AND status IN ('queued','running')").bind(actor.principal_id).fetch_one(&mut *tx).await?;
     if queued >= 100 {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
@@ -63,7 +68,9 @@ pub async fn create(
     let created_at = Utc::now();
     let expires_at = created_at + Duration::hours(request.retention_hours.into());
     sqlx::query("INSERT INTO export_jobs(id,owner_principal_id,actor,source_id,property_id,request,status,created_at,expires_at,configuration_revision) VALUES($1,$2,$3,$4,$5,$6,'queued',$7,$8,$9)")
-        .bind(id).bind(actor.principal_id).bind(encode(actor)?).bind(request.query.source_id).bind(request.query.property_id).bind(encode(&request)?).bind(created_at).bind(expires_at).bind(revision).execute(&state.db).await?;
+        .bind(id).bind(actor.principal_id).bind(encode(actor)?).bind(request.query.source_id).bind(request.query.property_id).bind(encode(&request)?).bind(created_at).bind(expires_at).bind(revision).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO audit_records(principal_id,delegated_by,action,target,outcome) VALUES($1,$2,'exports:create',$3,'success')").bind(actor.principal_id).bind(actor.delegated_by).bind(id.to_string()).execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(ExportStatus {
         id,
         status: "queued".into(),
@@ -377,6 +384,11 @@ pub fn start_worker(state: AppState) -> tokio::task::JoinHandle<()> {
                             if run(&s, id).await.is_err() {
                                 let _=sqlx::query("UPDATE export_jobs SET status='failed',error='export_failure' WHERE id=$1 AND status='running'").bind(id).execute(&s.db).await;
                             }
+                            let _ =
+                                sqlx::query("UPDATE export_jobs SET lease_until=now() WHERE id=$1")
+                                    .bind(id)
+                                    .execute(&s.db)
+                                    .await;
                         });
                     }
                     _ => break,
@@ -388,18 +400,19 @@ pub fn start_worker(state: AppState) -> tokio::task::JoinHandle<()> {
 }
 async fn maintenance(state: &AppState) -> ApiResult<()> {
     sqlx::query("UPDATE export_jobs SET status='failed',error='worker_interrupted' WHERE status='running' AND lease_until < now()").execute(&state.db).await?;
-    let rows=sqlx::query("UPDATE export_jobs SET status='expired',manifest=NULL WHERE expires_at<now() AND status<>'expired' RETURNING id").fetch_all(&state.db).await?;
-    for row in rows {
-        remove_files(state, row.get("id")).await;
-    }
-    // Remove cancelled/deleted outputs after the worker drops its file handle.
-    let ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM export_jobs WHERE status IN ('expired','cancelled','failed') LIMIT 1000",
-    )
-    .fetch_all(&state.db)
-    .await?;
+    sqlx::query("UPDATE export_jobs SET status='expired',manifest=NULL WHERE id IN (SELECT id FROM export_jobs WHERE expires_at<now() AND status<>'expired' ORDER BY expires_at LIMIT 1000)").execute(&state.db).await?;
+    // A cancelled worker may still hold/create its temporary file. Its lease is
+    // released when run() exits; process crashes are bounded by the lease expiry.
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT id FROM export_jobs WHERE status IN ('expired','cancelled','failed') AND cleaned_at IS NULL AND (lease_until IS NULL OR lease_until<=now()) ORDER BY created_at,id LIMIT 1000").fetch_all(&state.db).await?;
     for id in ids {
-        remove_files(state, id).await;
+        let removed =
+            match fs::remove_dir_all(state.config.export_directory.join(id.to_string())).await {
+                Ok(()) => true,
+                Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+            };
+        if removed {
+            sqlx::query("UPDATE export_jobs SET cleaned_at=now() WHERE id=$1 AND status IN ('expired','cancelled','failed')").bind(id).execute(&state.db).await?;
+        }
     }
     Ok(())
 }
