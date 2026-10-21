@@ -1,0 +1,13 @@
+.git
+.env*
+secrets
+local
+artifacts
+exports
+target
+node_modules
+**/node_modules
+**/dist
+**/__pycache__
+*.pem
+*.key

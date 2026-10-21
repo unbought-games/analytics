@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "status": "proposed; not performance results",
+  "workload": {
+    "normal": {"requests": 1000, "concurrency": 4, "events_per_batch": 20},
+    "burst": {"requests": 2000, "concurrency": 32, "events_per_batch": 100},
+    "export": {"rows": 100000, "concurrent_exports": 2},
+    "database_container": {"cpus": 1, "memory_mib": 512},
+    "engine_container": {"cpus": 2, "memory_mib": 512}
+  },
+  "proposed_limits": {
+    "normal_ingest_p95_ms": 250,
+    "normal_ingest_p99_ms": 1000,
+    "engine_peak_rss_mib": 384,
+    "export_additional_peak_rss_mib": 64,
+    "external_query_statement_timeout_ms": 2000,
+    "authoritative_unaccounted_events": 0
+  },
+  "required_observations": [
+    "browser package compressed/uncompressed bytes and initialization/interaction cost",
+    "normal and burst request count, response counts, per-event rejection, queue/drop counts",
+    "ingestion throughput and p50/p95/p99 latency",
+    "server RSS baseline/peak under ingestion and streaming export",
+    "database active queries, query latency, rows/bytes exported, cancellation",
+    "bounded outage recovery with stable producer event IDs and no lost commits"
+  ]
+}
