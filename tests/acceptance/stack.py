@@ -84,6 +84,8 @@ def environment(state):
     return dict(os.environ,
         ANALYTICS_DATABASE_URL_FILE=str(host_dsn),
         DATABASE_URL=f"postgres://analytics_migration:{password}@{endpoint(state, 'postgres', 5432)}/analytics",
+        INGEST_TEST_DATABASE_URL=host_dsn.read_text(),
+        QUERY_TEST_DATABASE_URL=host_dsn.read_text(),
         TEST_DATABASE_URL=f"postgres://analytics_migration:{password}@{endpoint(state, 'postgres', 5432)}/analytics",
         TEST_SOURCE_DATABASE_URL=f"postgres://synthetic_reader:{source_password}@{endpoint(state, 'sources', 5432)}/synthetic",
         TEST_FIXTURE_URL="http://" + endpoint(state, "fixtures", 8081),

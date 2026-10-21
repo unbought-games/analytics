@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 analytics-query = { path = "../analytics-query" }
+analytics-ingest = { path = "../analytics-ingest" }
 analytics-core.workspace = true
 axum.workspace = true
 tokio.workspace = true

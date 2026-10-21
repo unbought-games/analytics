@@ -135,7 +135,10 @@ async fn run() -> ApiResult<()> {
                 }),
             };
             let _export_worker = analytics_query::start_worker(state.clone());
-            let extensions: Vec<Arc<dyn Extension>> = vec![Arc::new(analytics_query::QueryExtension)];
+            let extensions: Vec<Arc<dyn Extension>> = vec![
+                Arc::new(analytics_query::QueryExtension),
+                Arc::new(analytics_ingest::IngestionExtension),
+            ];
             let app = analytics_server::router(state, extensions, oidc);
             let listener = tokio::net::TcpListener::bind(bind)
                 .await

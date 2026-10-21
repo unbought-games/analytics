@@ -81,6 +81,7 @@ name = "analytics-server"
 version = "0.1.0"
 dependencies = [
  "analytics-core",
+ "analytics-ingest",
  "analytics-query",
  "async-trait",
  "axum",
