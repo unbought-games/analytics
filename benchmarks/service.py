@@ -55,6 +55,8 @@ def main():
     os.environ["ANALYTICS_MAX_IN_FLIGHT_REQUESTS"]="16"
     output=ROOT/"artifacts/benchmarks"
     output.mkdir(parents=True,exist_ok=True)
+    for name in ("normal.json","burst.json","service.json"):
+        (output/name).unlink(missing_ok=True)
     reports={}
     with Service(name="benchmark",database="benchmark_"+uuid.uuid4().hex[:12]) as service:
         service.migrate_bootstrap()
@@ -76,9 +78,12 @@ def main():
             args=[sys.executable,"benchmarks/ingestion.py","--url",service.url+"/v1/ingest/server","--batch",str(batch),"--credential-file",str(credential),"--requests",str(requests),"--concurrency",str(concurrency),"--output",str(output/(name+".json"))]
             if name=="burst":args.append("--allow-backpressure")
             with Samples(service.process.pid) as samples:
-                subprocess.run(args,cwd=ROOT,check=True)
+                driver=subprocess.run(args,cwd=ROOT,check=False)
             reports[name]=json.loads((output/(name+".json")).read_text())
             reports[name]["service_rss"]=samples.result()
+            reports[name]["client_exit_code"]=driver.returncode
+            count=compose(service.state,"exec","-T","postgres","psql","-X","-A","-t","-U","analytics_runtime","-d",service.database,"-v","ON_ERROR_STOP=1",input="SELECT count(*) FROM ingest_events WHERE property_id='"+property_id+"';",text=True,capture_output=True).stdout.strip()
+            reports[name]["independently_persisted_events"]=int(count)
             reports[name]["durable_counters"]=service.client.tool("ingest_status",{"property_id":property_id})["counters"]
         def sql(statement):
             return compose(service.state,"exec","-T","sources","psql","-X","-A","-t","-U","fixture_migration","-d","synthetic","-v","ON_ERROR_STOP=1",input=statement,text=True,capture_output=True).stdout.strip()
@@ -116,6 +121,8 @@ def main():
         reports["configuration"]={"recorded_at":datetime.now(timezone.utc).isoformat(),"revision":subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),"dirty":bool(subprocess.check_output(["git","status","--porcelain"],cwd=ROOT)),"source_tree_hashes":{part:subprocess.check_output(["git","rev-parse","HEAD:"+part],cwd=ROOT,text=True).strip() for part in ["crates","migrations","Cargo.lock","packages/browser","examples/producers","tests/acceptance","benchmarks"]},"service_build":"native cargo --release; default optimization; no service CPU cap; global HTTP admission16","database":"postgres17.7 containers;1CPU/512MiB each","rss_method":"ps RSS bytes sampled every50ms; may miss shorter peaks","source_impact":"pg_stat_database counters include fixture polling; cumulative stats may lag","outage":"separate actual browser transactional signup/outbox test; not inferred from throughput"}
     limits=json.loads((ROOT/"benchmarks/budgets.json").read_text())["proposed_limits"]
     reports["budget_evaluation"]={
+        "all_requests_accounted":all(reports[n]["client_exit_code"]==0 for n in ("normal","burst")),
+        "acknowledged_events_persisted":all(reports[n]["accepted_events"]==reports[n]["independently_persisted_events"] for n in ("normal","burst")),
         "normal_p95":reports["normal"]["accepted_request_latency_ms"]["p95"]<=limits["normal_ingest_p95_ms"],
         "normal_p99":reports["normal"]["accepted_request_latency_ms"]["p99"]<=limits["normal_ingest_p99_ms"],
         "rss":max(reports[name]["service_rss"]["peak_bytes"] for name in ("normal","burst","export"))<=limits["engine_peak_rss_mib"]*1024*1024,
