@@ -13,7 +13,7 @@ make local-down STATE=local/acceptance/run-EXAMPLE/state.json
 
 Use the actual generated path. Cleanup validates that the state belongs to this checkout and that its project matches the generated test-name format. It removes that project's containers, network and volumes and deletes its password files. It never invokes a global Docker prune. A machine crash can require the documented explicit cleanup. Do not upload `local/`, environment dumps, bootstrap handoffs or database dumps to CI artifacts.
 
-The PostgreSQL superuser in this disposable setup is used only for fixture creation and migrations. `synthetic_reader` has access only to the manufactured `game.activity` source, defaults to read-only transactions, and has 500ms statement/100ms lock budgets. It cannot inspect the private fixture schema. This is not a production runtime-role configuration.
+The PostgreSQL superuser in this disposable setup is used only for fixture creation and migrations. `synthetic_reader` has access only to the manufactured `game.activity` source, defaults to read-only transactions, and has 500ms statement/100ms lock budgets. It cannot inspect the private fixture schema. Manufactured analytical rows from Task 5 are also loaded into `cohort.synthetic_acquisition`, `cohort.synthetic_identity_map`, `cohort.synthetic_memberships` and `cohort.synthetic_activity`, using typed text/boolean/JSONB columns and an explicit stable fixture ordinal. These source rows are compared with the original files in real PostgreSQL tests. This is not a production runtime-role configuration.
 
 ## Controlled external services
 

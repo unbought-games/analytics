@@ -14,12 +14,13 @@ import subprocess
 import sys
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from urllib.parse import urlsplit
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests" / "acceptance"))
-from client import protected_secret
+from client import Client, protected_secret
 
 
 def percentile(values, p):
@@ -41,7 +42,11 @@ def main():
     template = json.loads(args.batch.read_text())
     if not 1 <= len(template["events"]) <= 1000:
         parser.error("batch must contain 1..1000 events")
+    target = urlsplit(args.url)
+    if target.hostname not in ("127.0.0.1", "localhost", "::1") or target.username or target.password or target.path != "/v1/ingest/server":
+        parser.error("this acceptance driver only targets loopback synthetic server ingestion")
     token = protected_secret(args.credential_file)
+    client = Client(args.url, token)
     def send(_):
         # Independent unique events exercise insert cost, not deduplication fast paths.
         events = [dict(event, event_id=str(uuid.uuid4())) for event in template["events"]]
@@ -50,7 +55,7 @@ def main():
         accepted = 0
         status = "transport_error"
         try:
-            with urlopen(Request(args.url, data=body, headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"}), timeout=args.timeout) as response:
+            with client.opener.open(Request(args.url, data=body, headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"}), timeout=args.timeout) as response:
                 status = str(response.status)
                 result = json.loads(response.read(8 * 1024 * 1024))
                 accepted = sum(row["status"] == "accepted" for row in result["results"])

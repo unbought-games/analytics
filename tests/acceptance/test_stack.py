@@ -35,6 +35,18 @@ class StackTests(unittest.TestCase):
         finally:
             self.sql("DROP DATABASE restore_check;", "fixture_migration", "postgres")
 
+    def test_cohort_source_retains_types_and_duplicate_facts(self):
+        from cohort_source import FIXTURES, ROLES, projection
+        for role in ROLES:
+            rows = [json.loads(line) for line in (FIXTURES / (role + ".jsonl")).read_text().splitlines()]
+            actual = self.sql("SELECT row_to_json(projected)::text FROM (" + projection(role) + ") projected;")
+            actual = [json.loads(line) for line in actual.splitlines()]
+            self.assertEqual(len(actual), len(rows))
+            for original, restored in zip(rows, actual):
+                self.assertEqual(original, {key: restored[key] for key in original})
+        history = self.sql("SELECT history->>'sample_fraction' FROM cohort.synthetic_memberships ORDER BY fixture_ordinal LIMIT 1;")
+        self.assertEqual(history, "1")
+
     def test_fixture_http_is_reachable(self):
         with urlopen(os.environ["TEST_FIXTURE_URL"] + "/healthz", timeout=5) as response:
             self.assertTrue(json.load(response)["synthetic"])

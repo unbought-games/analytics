@@ -25,6 +25,8 @@ jobs:
         run: rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt && rustup default 1.99.0
       - name: Install browser dependencies
         run: npm ci
+      - name: Install real browser
+        run: npx playwright install --with-deps chromium
       - name: Build and static checks
         run: make build check
       - name: Complete disposable acceptance
