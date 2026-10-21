@@ -341,3 +341,26 @@ before promising those targets. Native non-composed shadow events and applicatio
 widget implementations need explicit integration where delegated capture cannot
 observe them. Server retention/deletion, cross-property signup provenance and
 longitudinal analysis require the full integration evidence, not browser test counts.
+
+The implementation revision tested on October 21, 2026 is `9c377bd` (foundation
+contract `3b752ee`, ingestion checkpoint `b81e2bd`; local cherry-pick hashes differ).
+Final commands and outcomes:
+
+| Command | Outcome |
+| --- | --- |
+| `npm ci` | Reproducible install completed; 8 packages installed, audit reported 0 vulnerabilities |
+| `npm run check` | Generated wire drift check and strict TypeScript check passed |
+| `npm run test:browser` | 27 Chromium tests passed |
+| `npm run test:browser:service` | Real PostgreSQL/Rust/Chromium contract regression passed; 4 stored events, replay dedupe, forgery rejection and reset verified |
+| `npm run benchmark:browser` | All recorded engineering budgets passed |
+| `npm pack --dry-run --json --ignore-scripts --workspace @independent-analytics/browser` | 16 files; only metadata, license, README and built distribution |
+| `git diff --check` | No whitespace errors |
+
+Final benchmark: ESM 26,085 minified bytes / 8,856 gzip bytes; global script 26,575 /
+9,081 bytes. Synchronous initialization p95 0.3 ms; policy-ready p95 7.2 ms on local
+HTTP; interaction p95 0.1 ms. The 56-event normal workload used five requests and
+38,475 body bytes without loss. The 10,000-click outage burst retained at most 190
+events / 130,861 encoded bytes, counted 9,811 saturation drops and 190 exhausted
+observations, and drained to zero. Chromium retained-heap growth after GC was
+184,396 bytes for that page workload. The fixture's database/authentication scope
+and browser-engine limits above apply; these are not production measurements.
