@@ -1,0 +1,14 @@
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"076b406b-7175-5e0f-96f3-fa3eb115a99e","status":"verified","subject":"966cc7a1-8186-5ea2-b379-b27d8ab5e714"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"3ab8e8d2-40a5-5754-9b68-cfe88c9757cf","status":"verified","subject":"bc92736b-6269-5ef8-83dc-57eb9d18aa16"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"41076698-13ae-5187-8d4f-434ba4b43339","status":"verified","subject":"0689bfd6-5a90-5d1b-a6e6-8602e0be8f51"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"4a84af19-e726-5410-adab-a50f1212233e","status":"verified","subject":"4f686521-42e5-5d43-9b92-7bde350173ff"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"73d063cc-a27d-5cda-96fc-412b088d88ec","status":"verified","subject":"e50085fa-8fa7-5646-99c1-e67eb600ebb3"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"802dfa4f-38d7-5c3e-ab7c-741022b4681a","status":"verified","subject":"8c81d7b6-cc70-515d-97c1-7fbcdd20e008"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"a2c40c2e-691e-5c10-a7e6-217be29ddc69","status":"verified","subject":"0b83b37b-f288-58fd-9279-02263f49433b"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"e0ca6335-11e5-5ef4-b425-7ffb2b14b55d","status":"verified","subject":"8aa59150-07fa-5ad6-8d9d-e370fdfa88b6"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"faa4a8b0-9b4d-5a69-a422-62db245779a2","status":"verified","subject":"8d887877-20b7-5848-befc-55f36e739178"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":"faa4a8b0-9b4d-5a69-a422-62db245779a2","status":"verified","subject":"8d887877-20b7-5848-befc-55f36e739178"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":null,"status":"deleted","subject":"a9d04355-1281-5847-a197-95aa83343890"}
+{"application":"game-cobalt","issuer":"https://identity.example","local_account_id":null,"status":"unmapped","subject":"4481190f-cc49-5708-84d4-3a64447f5432"}
+{"application":"game-cobalt","issuer":"https://second-identity.example","local_account_id":"a408fcc4-465d-5987-aa72-92f6d9a96f32","status":"verified","subject":"8d887877-20b7-5848-befc-55f36e739178"}
+{"application":"game-ochre","issuer":"https://identity.example","local_account_id":"d2a363ef-a5df-5137-b3a6-8dbe018f8046","status":"verified","subject":"8d887877-20b7-5848-befc-55f36e739178"}

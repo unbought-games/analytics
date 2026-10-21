@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Analyze a downloaded campaign export without contacting any service."""
+import argparse
+import json
+from pathlib import Path
+import sys
+from manifest_adapter import load_manifest
+from metrics import calculate
+
+
+def readable(report):
+    lines = ["Campaign cohort report", f"Definition: {report['definition_version']}",
+             f"Cutoff (exclusive): {report['cutoff']}",
+             f"Input: {report['provenance']['manifest_file']} SHA-256 {report['provenance']['manifest_sha256']}", ""]
+    for campaign in report["campaigns"]:
+        lines += [f"Campaign: {json.dumps(campaign['campaign'], ensure_ascii=True)}",
+                  f"Observed visits: {campaign['observed_visits']}; browser identities: {campaign['observed_browser_identities']}",
+                  f"Acquired accounts: {campaign['acquired_accounts']}; revisiting accounts: {campaign['revisiting_accounts']}",
+                  f"Enrolled accounts: {campaign['enrolled_accounts']}; world memberships: {campaign['world_memberships']}",
+                  f"First-observed play: {campaign['first_observed_play_accounts']}; verified first-ever: {campaign['verified_first_ever_play_accounts']}"]
+        for label, metric in [("Signup (30 days)", campaign["signup_conversion"]),
+                              ("Activation (7 days)", campaign["activation"]), *campaign["retention"].items()]:
+            percentage = "unavailable" if metric["rate"] is None else f"{metric['rate']:.2%}"
+            lines += [f"  {label}: {metric['numerator']}/{metric['eligible_mature_denominator']} ({percentage}); cohort {metric['cohort_size']}; exclusions {json.dumps(metric['exclusions'], sort_keys=True)}"]
+        lines.append("")
+    lines += ["Coverage and limitations:", *[f"- {s}" for s in report["limitations"]]]
+    for source in report["provenance"]["inputs"]:
+        manifest = source["manifest"]
+        lines.append(f"- {source['name']}: {manifest['status']}; coverage {json.dumps(manifest['coverage'], sort_keys=True)}; source reads {manifest['source_read_at']}")
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--cutoff", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        data, metadata, provenance = load_manifest(args.manifest, args.cutoff)
+        report = calculate(data, metadata, args.cutoff)
+        report["provenance"] = provenance
+        args.output.mkdir(parents=True, exist_ok=True)
+        (args.output / "campaign-report.json").write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+        (args.output / "campaign-report.txt").write_text(readable(report), encoding="utf-8")
+    except (ValueError, KeyError, TypeError, OSError) as error:
+        print(f"analysis failed: {error}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

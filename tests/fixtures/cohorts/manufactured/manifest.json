@@ -1,0 +1,25 @@
+{
+  "format_version": "cohort-bundle/1",
+  "inputs": [
+    {
+      "dataset_name": "acquisition",
+      "manifest_file": "acquisition.manifest.json",
+      "name": "acquisition"
+    },
+    {
+      "dataset_name": "identity_map",
+      "manifest_file": "identity_map.manifest.json",
+      "name": "identity_map"
+    },
+    {
+      "dataset_name": "memberships",
+      "manifest_file": "memberships.manifest.json",
+      "name": "memberships"
+    },
+    {
+      "dataset_name": "activity",
+      "manifest_file": "activity.manifest.json",
+      "name": "activity"
+    }
+  ]
+}
