@@ -10,6 +10,7 @@ On 2026-10-21, on an ARM64 development host with Docker 29.7.2, Rust 1.99.0, Nod
 | --- | --- |
 | `python3 -m unittest discover -s tests/acceptance -p test_fixtures.py -v` | 4 passed: real HTTP fixtures, signed OIDC authorization-code/PKCE, replay rejection, vendor gaps/pagination/errors |
 | `python3 -m unittest discover -s tests/acceptance -p test_client.py -v` | 4 passed: authenticated streaming retrieval, checksum/size/rows, no overwrite, origin/redirect/path boundaries, protected credentials |
+| `python3 -m unittest discover -s tests/acceptance -p test_build_context.py -v` | 2 passed: actual Docker build context excludes manufactured private/local handoff files and includes only intended build inputs |
 | `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_stack.py -v` | 3 passed against PostgreSQL 17.7: narrow reader, write/private-schema/timeout denial, lossless values, real backup/restore, reachable fixture; resources removed |
 
 These commands were run on the foundation contract checkpoint `3b752ee2d24819444dc7195c47c90fb44410eb3b` plus the integration working changes. The integration commit is reported in the handoff; the machine-readable runner records exact HEAD and dirty state for subsequent runs. Infrastructure tests do not claim Rust adapter, human sign-in, browser or end-to-end application behavior.
