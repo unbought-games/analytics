@@ -234,9 +234,7 @@ pub(crate) async fn ingest(
             }
             Err(error) => return Err(error),
         };
-        let quota:i32=sqlx::query_scalar("INSERT INTO ingest_quotas(property_id,window_start,events) VALUES($1,date_trunc('minute',$2::timestamptz),1) ON CONFLICT(property_id) DO UPDATE SET events=CASE WHEN ingest_quotas.window_start=date_trunc('minute',$2::timestamptz) THEN LEAST(ingest_quotas.events+1,6001) ELSE 1 END,window_start=date_trunc('minute',$2::timestamptz) RETURNING events")
-            .bind(p.id).bind(now).fetch_one(&mut *tx).await?;
-        if quota > 6000 {
+        if !quota(&mut tx, p.id, browser).await? {
             count(&mut tx, p.id, "rate_limited", 1).await?;
             results.push(result(e.event_id, "rejected", Some("rate_limited"), None));
             continue;

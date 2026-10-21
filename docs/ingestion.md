@@ -33,7 +33,9 @@ or attribution rules. Server clocks are `server`/`game`; browser clocks are
 ## Durability, ordering and budgets
 
 A batch has 1–100 events and at most 256 KiB (or a lower configured body budget).
-The service accepts up to 6,000 event attempts and capability issues per property/minute.
+The service uses separate per-property quota buckets: 6,000 public event attempts/
+capability issues per minute and 60,000 authenticated server attempts/issues per
+minute. Public traffic cannot consume the authoritative delivery budget.
 At most 32 HTTP operations enter the module concurrently; excess requests receive
 429 before their bodies are parsed. There is no
 unbounded server memory queue. Database statement/lock budgets are 15/5 seconds.
@@ -132,22 +134,42 @@ to prevent deleted identities returning through delayed retries; they are not
 analytical identity mappings. Minimal acquisition/provenance retention may exceed
 short browser-event retention, subject to deletion and documented coverage.
 
-Synthetic producers in `examples/producers` demonstrate an application transaction
-and bounded durable outbox, leasing, timeout/backoff, retry after uncertain ACK,
-and quarantine of permanent rejection. PostgreSQL capacity reservation occurs
-before application success. No generic post-commit callback can replace that
-transactional capture. Quarantined/unacknowledged authoritative facts are retained
-for repair; only acknowledged rows may be compacted under an operator policy.
+Synthetic producers in `examples/producers` record authoritative business facts in
+the producer-owned `synthetic_commands` journal. Application transactions neither
+inspect delivery queue capacity nor take a delivery lock nor call analytics. A
+recoverable projection materializes at most 100 retained facts per call into a
+10,000-row delivery queue. The dispatcher leases at most 50 events within a 240,000
+byte serialized-payload budget, with timeout/backoff and stable event IDs. ACK
+atomically marks the journal fact delivered and removes its queue row. Permanent
+rejections are visibly quarantined in the retained journal, freeing projection
+capacity without deleting the original fact. Projection does not advance a
+high-watermark cursor, so an earlier transaction committing late remains eligible.
+Deleting the projection queue can be recovered from the journal.
 
-## Verification checkpoint
+The application owns its original-history storage and retention budget; it does
+not retain an unbounded second analytics log. For example, retain a native command
+journal for 365 days and run `prune_journal`/`pruneJournal` in bounded maintenance
+pages under that independent policy. A longer retention period may be needed for
+the application's questions. The example never purges original history to make
+analytics queue space. If the application's chosen history policy expires facts
+before a confirmed ACK, `retention.sql` atomically records their count/time/sequence
+range and reason `source_retention_without_ack`, then removes history and queued
+copies in pages of at most 1,000. These facts can no longer be replayed from the
+producer; receipt at the receiver may be unknown after ACK loss. They are explicit
+coverage limitations, never zero activity or a promise of unlimited recovery.
+`producer_delivery_coverage` exposes pending journal count, bounded queue count,
+quarantine count, unconfirmed pruned count and retained history boundary. Query
+this view alongside original facts through the configured source adapter.
 
-Executed against disposable Docker `postgres:17`, loopback published port:
+See [the producer example guide](../examples/producers/README.md) for commands and
+recovery/retention behavior. No generic synchronous analytics call or post-commit
+callback replaces the application-owned durable fact.
 
-```sh
-INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:53668/postgres cargo test -p analytics-ingest --tests
-```
+## Verification
 
-Result: two validation/admission unit tests and eight real PostgreSQL integration tests pass.
+Executed against disposable Docker `postgres:17` on a loopback published port.
+
+Result: two validation/admission unit tests and eleven real PostgreSQL integration tests pass.
 They cover ACK/dedupe/conflict, 180-day late arrival, cross-property event-ID reuse,
 policy/authority/origin/prohibited fields, campaign first/last transfer and expiry,
 login versus signup, logical scheduled events, differing namespaces/multiple worlds,
@@ -165,7 +187,7 @@ identifiers are redacted while principal/action history remains.
 Additional final checks:
 
 ```sh
-INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:53668/postgres cargo test -p analytics-ingest --all-targets
+INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:56902/postgres cargo test -p analytics-ingest --all-targets
 cargo clippy -p analytics-ingest --all-targets -- -D warnings
 cargo fmt -p analytics-ingest -- --check
 cargo run -q -p analytics-ingest --example openapi > /tmp/analytics-ingest-openapi.json
@@ -182,8 +204,33 @@ checkpoint's real loopback/PostgreSQL harness: landing, button and SPA navigatio
 committed in one batch, retry deduplicated, a forged subject was rejected and reset
 created a fresh boundary. Its `npm run test:browser:service` owns that reproduction.
 The producer Rust example is covered by actual HTTP recovery tests. The TypeScript
-producer uses the same generated wire DTOs and transactional SQL; its standalone
-runtime validation is tracked with browser/integration work. Overall A01–A14,
+producer also has a standalone real-PostgreSQL/HTTP regression (commands below). Overall A01–A14,
 full foundation credential tests, assembled export deletion, performance budgets
 and deployment/publication remain the orchestrating acceptance scope; this module
 does not claim those completed from isolated tests.
+
+
+Corrective journal/quota verification (disposable PostgreSQL, October 21, 2026):
+
+```sh
+INGEST_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:56902/postgres cargo test -p analytics-ingest --all-targets
+npm --prefix examples/producers ci --ignore-scripts
+PRODUCER_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:56902/postgres npm --prefix examples/producers test
+```
+
+Both language regressions commit 10,000 original facts, fill the queue, fail
+analytics delivery, successfully commit 25 further commands, lose/rebuild the queue,
+and recover all 10,025 facts with an uncertain-ACK duplicate. They also record an
+explicit gap for a subsequently pruned unacknowledged fact. Rust uses the actual
+ingestion router; TypeScript uses a durable PostgreSQL HTTP receiver fixture.
+Large-payload projection respects the byte budget and late native commits are not
+skipped. A separate test exhausts the public quota while trusted server delivery
+continues. Source configuration, full application journal semantics and retention
+remain application responsibilities.
+
+Final corrective result: 2 unit tests and 11 PostgreSQL suites passed (104.09s,
+concurrent with the TypeScript run). TypeScript recovered all 10,025 facts in
+38.49s; measured heap growth was 32,058,144 bytes, maximum request payload 30,262
+bytes and maximum request batch 50. Clippy, formatting and strict TypeScript
+checks passed. Full commands, contract revision and fixture limitations are in
+`examples/producers/README.md`.

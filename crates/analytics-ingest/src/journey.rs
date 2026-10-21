@@ -52,7 +52,7 @@ pub(crate) async fn handoff(
     let mut tx = state.db.begin().await?;
     lock(&mut tx).await?;
     let source = property(&mut tx, r.property_id).await?;
-    capability_quota(&mut tx, r.property_id).await?;
+    capability_quota(&mut tx, r.property_id, actor.is_none()).await?;
     let audience = property(&mut tx, r.audience).await?;
     if !source.policy.cross_property
         || !audience.policy.cross_property
@@ -295,7 +295,7 @@ pub async fn issue_proof(
     {
         return Err(ApiError::forbidden());
     }
-    capability_quota(&mut tx, p.id).await?;
+    capability_quota(&mut tx, p.id, false).await?;
     let subject = e.subject.unwrap();
     if e.visit_id != r.visit_id
         || e.visitor_id != r.visitor_id
