@@ -1,0 +1,2022 @@
+{
+  "components": {
+    "schemas": {
+      "AdminRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string"
+          },
+          "resource_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource_kind": {
+            "type": "string"
+          },
+          "value": true
+        },
+        "required": [
+          "operation",
+          "resource_kind"
+        ],
+        "title": "AdminRequest",
+        "type": "object"
+      },
+      "Campaign": {
+        "additionalProperties": false,
+        "properties": {
+          "experiment_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "utm_campaign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "utm_content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "utm_medium": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "utm_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "utm_term": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "CollectionContext": {
+        "additionalProperties": false,
+        "properties": {
+          "consent": {
+            "type": "boolean"
+          },
+          "dropped_events": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/CollectionProfile"
+          },
+          "sample_rate": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "profile",
+          "policy_version",
+          "consent",
+          "sample_rate",
+          "dropped_events"
+        ],
+        "type": "object"
+      },
+      "CollectionPolicy": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_query_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "attribution_window_days": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "cross_property": {
+            "type": "boolean"
+          },
+          "effective_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "event_retention_days": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "identity_retention_days": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/CollectionProfile"
+          },
+          "respect_global_privacy_control": {
+            "type": "boolean"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "profile",
+          "version",
+          "effective_at",
+          "cross_property",
+          "event_retention_days",
+          "identity_retention_days",
+          "attribution_window_days",
+          "allowed_query_keys",
+          "respect_global_privacy_control"
+        ],
+        "type": "object"
+      },
+      "CollectionProfile": {
+        "enum": [
+          "minimal",
+          "journey",
+          "identified"
+        ],
+        "type": "string"
+      },
+      "ColumnDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "data_type": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nullable": {
+            "type": "boolean"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "data_type",
+          "nullable"
+        ],
+        "type": "object"
+      },
+      "Coverage": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "history_end": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "history_start": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "policy_versions": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "sample_rate": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "complete",
+          "limitations",
+          "policy_versions"
+        ],
+        "type": "object"
+      },
+      "CredentialCreated": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "token",
+          "expires_at"
+        ],
+        "title": "CredentialCreated",
+        "type": "object"
+      },
+      "CredentialRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/Grant"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "principal_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal_id",
+          "name",
+          "expires_at",
+          "grants"
+        ],
+        "title": "CredentialRequest",
+        "type": "object"
+      },
+      "DatasetManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnDefinition"
+            },
+            "type": "array"
+          },
+          "download_url": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ordering": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "row_count": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "file_name",
+          "media_type",
+          "bytes",
+          "sha256",
+          "row_count",
+          "columns",
+          "download_url",
+          "ordering"
+        ],
+        "type": "object"
+      },
+      "DeletionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NamespacedId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id",
+          "reason"
+        ],
+        "title": "DeletionRequest",
+        "type": "object"
+      },
+      "EventAcknowledgement": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "receipt_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "EventCategory": {
+        "enum": [
+          "navigation",
+          "interaction",
+          "form",
+          "visibility",
+          "signup",
+          "enrollment",
+          "human_action",
+          "scheduled",
+          "system",
+          "custom"
+        ],
+        "type": "string"
+      },
+      "EventContext": {
+        "additionalProperties": false,
+        "properties": {
+          "control": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "correlation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment": {
+            "type": "string"
+          },
+          "page": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "referrer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "environment"
+        ],
+        "type": "object"
+      },
+      "EventEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution_rule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "campaign": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Campaign"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "$ref": "#/components/schemas/EventCategory"
+          },
+          "clock": {
+            "type": "string"
+          },
+          "collection": {
+            "$ref": "#/components/schemas/CollectionContext"
+          },
+          "context": {
+            "$ref": "#/components/schemas/EventContext"
+          },
+          "event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "logical_time": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "producer": {
+            "$ref": "#/components/schemas/Producer"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "schema_version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NamespacedId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "touch_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visit_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "property_id",
+          "name",
+          "schema_version",
+          "producer",
+          "category",
+          "occurred_at",
+          "clock",
+          "context",
+          "collection",
+          "properties"
+        ],
+        "type": "object"
+      },
+      "EventSchemaDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "authoritative": {
+            "type": "boolean"
+          },
+          "category": {
+            "$ref": "#/components/schemas/EventCategory"
+          },
+          "name": {
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PropertyType"
+            },
+            "type": "object"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "property_id",
+          "name",
+          "version",
+          "authoritative",
+          "category",
+          "properties"
+        ],
+        "title": "EventSchemaDefinition",
+        "type": "object"
+      },
+      "ExportManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "continuation": true,
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetManifest"
+            },
+            "type": "array"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "export_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "format_version": {
+            "type": "string"
+          },
+          "provenance": true,
+          "query": {
+            "$ref": "#/components/schemas/QueryRequest"
+          },
+          "source_read_at": {
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          },
+          "watermark": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "export_id",
+          "format_version",
+          "status",
+          "datasets",
+          "query",
+          "created_at",
+          "expires_at",
+          "source_read_at",
+          "coverage",
+          "provenance"
+        ],
+        "title": "ExportManifest",
+        "type": "object"
+      },
+      "ExportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/QueryRequest"
+          },
+          "retention_hours": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query",
+          "format",
+          "retention_hours"
+        ],
+        "title": "ExportRequest",
+        "type": "object"
+      },
+      "ExportStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "manifest_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "ExportStatus",
+        "type": "object"
+      },
+      "Grant": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/Resource"
+          }
+        },
+        "required": [
+          "action",
+          "resource"
+        ],
+        "type": "object"
+      },
+      "HandoffRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "touch_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visit_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id",
+          "audience"
+        ],
+        "title": "HandoffRequest",
+        "type": "object"
+      },
+      "HandoffResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "handoff": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "handoff",
+          "expires_at"
+        ],
+        "title": "HandoffResponse",
+        "type": "object"
+      },
+      "IdentityLinkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/NamespacedId"
+          },
+          "target": {
+            "$ref": "#/components/schemas/NamespacedId"
+          },
+          "world": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id",
+          "subject",
+          "target",
+          "relationship",
+          "evidence_event_id"
+        ],
+        "title": "IdentityLinkRequest",
+        "type": "object"
+      },
+      "IdentityResetRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "visit_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id"
+        ],
+        "title": "IdentityResetRequest",
+        "type": "object"
+      },
+      "IngestAcknowledgement": {
+        "additionalProperties": false,
+        "properties": {
+          "committed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/EventAcknowledgement"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "results",
+          "committed_at"
+        ],
+        "title": "IngestAcknowledgement",
+        "type": "object"
+      },
+      "IngestBatch": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventEnvelope"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "IngestBatch",
+        "type": "object"
+      },
+      "NamespacedId": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "namespace",
+          "id"
+        ],
+        "type": "object"
+      },
+      "OidcBinding": {
+        "additionalProperties": false,
+        "properties": {
+          "issuer": {
+            "type": "string"
+          },
+          "principal_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal_id",
+          "issuer",
+          "subject"
+        ],
+        "title": "OidcBinding",
+        "type": "object"
+      },
+      "PrincipalDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "delegated_by": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "enabled"
+        ],
+        "title": "PrincipalDefinition",
+        "type": "object"
+      },
+      "Producer": {
+        "enum": [
+          "browser",
+          "server"
+        ],
+        "type": "string"
+      },
+      "PropertyDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_origins": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "handoff_audiences": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/CollectionPolicy"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "allowed_origins",
+          "policy",
+          "handoff_audiences",
+          "enabled"
+        ],
+        "title": "PropertyDefinition",
+        "type": "object"
+      },
+      "PropertyType": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "max_length": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "required"
+        ],
+        "type": "object"
+      },
+      "QueryBudget": {
+        "additionalProperties": false,
+        "properties": {
+          "max_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_concurrency": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_rows": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeout_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "timeout_ms",
+          "max_rows",
+          "max_bytes",
+          "max_concurrency"
+        ],
+        "type": "object"
+      },
+      "QueryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/QueryBudget"
+          },
+          "cutoff": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "definition_version": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "query": true,
+          "source_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeWindow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "query",
+          "parameters",
+          "cutoff",
+          "definition_version",
+          "budget"
+        ],
+        "type": "object"
+      },
+      "RedeemHandoffRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "handoff": {
+            "type": "string"
+          },
+          "visit_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "handoff",
+          "audience"
+        ],
+        "title": "RedeemHandoffRequest",
+        "type": "object"
+      },
+      "Resource": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ResourceKind"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "type": "object"
+      },
+      "ResourceKind": {
+        "enum": [
+          "installation",
+          "property",
+          "source",
+          "export",
+          "principal"
+        ],
+        "type": "string"
+      },
+      "SavedDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/QueryRequest"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "version",
+          "query",
+          "description"
+        ],
+        "title": "SavedDefinition",
+        "type": "object"
+      },
+      "SourceDefinition": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_columns": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "allowed_projects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowed_schemas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowed_tables": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/QueryBudget"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "secret_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "semantics": true
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "environment",
+          "endpoint",
+          "allowed_schemas",
+          "allowed_tables",
+          "allowed_columns",
+          "allowed_projects",
+          "budget",
+          "semantics",
+          "enabled"
+        ],
+        "title": "SourceDefinition",
+        "type": "object"
+      },
+      "TimeWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "WithdrawalRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NamespacedId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id"
+        ],
+        "title": "WithdrawalRequest",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "propertyToken": {
+        "in": "header",
+        "name": "X-Property-Token",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "Analytics Engine",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/.well-known/oauth-authorization-server": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/.well-known/oauth-protected-resource": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/.well-known/oauth-protected-resource/mcp": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "description": "MCP 2025-11-25 Streamable HTTP; JSON-RPC initialize, ping, tools/list, tools/call. Stateless JSON responses.",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response"
+          },
+          "202": {
+            "description": "Notification accepted"
+          },
+          "401": {
+            "description": "OAuth resource metadata challenge"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/v1/admin/execute": {
+      "post": {
+        "operationId": "_v1_admin_execute",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/status": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/exports": {
+      "post": {
+        "operationId": "_v1_exports",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportStatus"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/exports/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/exports/{id}/files/{name}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/exports/{id}/manifest": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/link": {
+      "post": {
+        "operationId": "_v1_identity_link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/reset": {
+      "post": {
+        "operationId": "_v1_identity_reset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "propertyToken": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/browser": {
+      "post": {
+        "operationId": "_v1_ingest_browser",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestAcknowledgement"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "propertyToken": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/server": {
+      "post": {
+        "operationId": "_v1_ingest_server",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestAcknowledgement"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/journey/handoff": {
+      "post": {
+        "operationId": "_v1_journey_handoff",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandoffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "propertyToken": []
+          }
+        ]
+      }
+    },
+    "/v1/journey/redeem": {
+      "post": {
+        "operationId": "_v1_journey_redeem",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemHandoffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffResponse"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/privacy/delete": {
+      "post": {
+        "operationId": "_v1_privacy_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/privacy/withdraw": {
+      "post": {
+        "operationId": "_v1_privacy_withdraw",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/query": {
+      "post": {
+        "operationId": "_v1_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportStatus"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Permission denied"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/sources": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/sources/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    }
+  }
+}
