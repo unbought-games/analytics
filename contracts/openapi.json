@@ -25,6 +25,32 @@
         "title": "AdminRequest",
         "type": "object"
       },
+      "BrowserChoiceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "visit_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id"
+        ],
+        "title": "BrowserChoiceRequest",
+        "type": "object"
+      },
       "Campaign": {
         "additionalProperties": false,
         "properties": {
@@ -195,6 +221,35 @@
           "data_type",
           "nullable"
         ],
+        "type": "object"
+      },
+      "CorrectionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "first_touch_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/NamespacedId"
+          }
+        },
+        "required": [
+          "property_id",
+          "subject",
+          "reason"
+        ],
+        "title": "CorrectionRequest",
         "type": "object"
       },
       "Coverage": {
@@ -816,6 +871,36 @@
         "title": "HandoffResponse",
         "type": "object"
       },
+      "IdentifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "proof": {
+            "type": "string"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "visit_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id",
+          "proof"
+        ],
+        "title": "IdentifyRequest",
+        "type": "object"
+      },
       "IdentityLinkRequest": {
         "additionalProperties": false,
         "properties": {
@@ -914,6 +999,37 @@
           "events"
         ],
         "title": "IngestBatch",
+        "type": "object"
+      },
+      "IssueProofRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_event_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "visit_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visitor_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "property_id",
+          "evidence_event_id"
+        ],
+        "title": "IssueProofRequest",
         "type": "object"
       },
       "NamespacedId": {
@@ -1033,6 +1149,20 @@
           "enabled"
         ],
         "title": "PropertyDefinition",
+        "type": "object"
+      },
+      "PropertyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "property_id"
+        ],
+        "title": "PropertyRequest",
         "type": "object"
       },
       "PropertyType": {
@@ -1208,6 +1338,25 @@
         ],
         "type": "string"
       },
+      "RevokeTokenRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "token_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "property_id",
+          "token_id"
+        ],
+        "title": "RevokeTokenRequest",
+        "type": "object"
+      },
       "SavedDefinition": {
         "additionalProperties": false,
         "properties": {
@@ -1333,6 +1482,28 @@
         ],
         "type": "object"
       },
+      "TokenRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "property_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "property_id",
+          "expires_at"
+        ],
+        "title": "TokenRequest",
+        "type": "object"
+      },
+      "Value": {
+        "title": "AnyValue"
+      },
       "WithdrawalRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1365,6 +1536,11 @@
       }
     },
     "securitySchemes": {
+      "PropertyToken": {
+        "in": "header",
+        "name": "X-Property-Token",
+        "type": "apiKey"
+      },
       "bearerAuth": {
         "scheme": "bearer",
         "type": "http"
@@ -1502,9 +1678,55 @@
         ]
       }
     },
+    "/v1/attribution/correct": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/exports": {
       "post": {
-        "operationId": "_v1_exports",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1524,16 +1746,25 @@
                 }
               }
             },
-            "description": "Success"
+            "description": "Authorized analytical result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid query"
           },
           "401": {
             "description": "Invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
           }
         },
         "security": [
@@ -1544,6 +1775,54 @@
       }
     },
     "/v1/exports/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authorized analytical result"
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
       "get": {
         "parameters": [
           {
@@ -1551,13 +1830,139 @@
             "name": "id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportStatus"
+                }
+              }
+            },
+            "description": "Authorized analytical result"
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/exports/{id}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportStatus"
+                }
+              }
+            },
+            "description": "Authorized analytical result"
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/exports/{id}/files/{file}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "const": "data.jsonl"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authenticated JSONL stream; access rechecked for every chunk"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Access revoked"
+          },
+          "410": {
+            "description": "Expired or cancelled"
           }
         },
         "security": [
@@ -1607,13 +2012,39 @@
             "name": "id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportManifest"
+                }
+              }
+            },
+            "description": "Authorized analytical result"
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
           }
         },
         "security": [
@@ -1623,9 +2054,66 @@
         ]
       }
     },
+    "/v1/identity/identify": {
+      "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
+          }
+        },
+        "security": [
+          {
+            "PropertyToken": []
+          }
+        ]
+      }
+    },
     "/v1/identity/link": {
       "post": {
-        "operationId": "_v1_identity_link",
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1638,16 +2126,76 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/proof": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueProofRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
@@ -1659,12 +2207,22 @@
     },
     "/v1/identity/reset": {
       "post": {
-        "operationId": "_v1_identity_reset",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/IdentityResetRequest"
+                "$ref": "#/components/schemas/BrowserChoiceRequest"
               }
             }
           },
@@ -1672,28 +2230,51 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
           {
-            "propertyToken": []
+            "PropertyToken": []
           }
         ]
       }
     },
     "/v1/ingest/browser": {
       "post": {
-        "operationId": "_v1_ingest_browser",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1713,28 +2294,145 @@
                 }
               }
             },
-            "description": "Success"
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
           {
-            "propertyToken": []
+            "PropertyToken": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/config": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "property_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Safe scoped configuration/status"
+          }
+        },
+        "security": [
+          {
+            "PropertyToken": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/policy": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "property_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Safe scoped configuration/status"
+          }
+        },
+        "security": [
+          {
+            "PropertyToken": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/retention": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PropertyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
           }
         ]
       }
     },
     "/v1/ingest/server": {
       "post": {
-        "operationId": "_v1_ingest_server",
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1754,16 +2452,148 @@
                 }
               }
             },
-            "description": "Success"
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/status": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "property_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Safe scoped configuration/status"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/token": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/ingest/token/revoke": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
@@ -1775,7 +2605,17 @@
     },
     "/v1/journey/handoff": {
       "post": {
-        "operationId": "_v1_journey_handoff",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1795,28 +2635,34 @@
                 }
               }
             },
-            "description": "Success"
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
           {
-            "propertyToken": []
+            "PropertyToken": []
           }
         ]
       }
     },
     "/v1/journey/redeem": {
       "post": {
-        "operationId": "_v1_journey_redeem",
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1832,20 +2678,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HandoffResponse"
+                  "$ref": "#/components/schemas/Value"
                 }
               }
             },
-            "description": "Success"
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
@@ -1872,7 +2724,7 @@
     },
     "/v1/privacy/delete": {
       "post": {
-        "operationId": "_v1_privacy_delete",
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1885,16 +2737,29 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
@@ -1906,7 +2771,64 @@
     },
     "/v1/privacy/withdraw": {
       "post": {
-        "operationId": "_v1_privacy_withdraw",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Origin",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrowserChoiceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Missing/invalid credential"
+          },
+          "403": {
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
+          }
+        },
+        "security": [
+          {
+            "PropertyToken": []
+          }
+        ]
+      }
+    },
+    "/v1/privacy/withdraw-subject": {
+      "post": {
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1919,16 +2841,29 @@
         },
         "responses": {
           "200": {
-            "description": "Success"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Value"
+                }
+              }
+            },
+            "description": "Committed operation result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid input"
           },
           "401": {
-            "description": "Invalid credential"
+            "description": "Missing/invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope/origin/policy denied"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "500": {
+            "description": "Not acknowledged; safe to retry stable event IDs"
           }
         },
         "security": [
@@ -1938,14 +2873,135 @@
         ]
       }
     },
-    "/v1/query": {
+    "/v1/properties/{id}/analytics": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authorized analytical result"
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/query/definitions": {
       "post": {
-        "operationId": "_v1_query",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/QueryRequest"
+                "$ref": "#/components/schemas/SavedDefinition"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedDefinition"
+                }
+              }
+            },
+            "description": "Authorized analytical result"
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/query/reproduce": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "cutoff": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "retention_hours": {
+                    "default": 24,
+                    "type": "integer"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "version",
+                  "cutoff"
+                ],
+                "type": "object"
               }
             }
           },
@@ -1960,16 +3016,25 @@
                 }
               }
             },
-            "description": "Success"
+            "description": "Authorized analytical result"
           },
           "400": {
-            "description": "Invalid request"
+            "description": "Invalid query"
           },
           "401": {
             "description": "Invalid credential"
           },
           "403": {
-            "description": "Permission denied"
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
           }
         },
         "security": [
@@ -2009,6 +3074,56 @@
         "responses": {
           "200": {
             "description": "Success"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/sources/{id}/discover": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authorized analytical result"
+          },
+          "400": {
+            "description": "Invalid query"
+          },
+          "401": {
+            "description": "Invalid credential"
+          },
+          "403": {
+            "description": "Scope or credential denied"
+          },
+          "409": {
+            "description": "Export not ready"
+          },
+          "410": {
+            "description": "Artifact expired or cancelled"
+          },
+          "429": {
+            "description": "Capacity exhausted"
           }
         },
         "security": [

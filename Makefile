@@ -8,10 +8,11 @@ check:
 	cargo fmt --all -- --check
 	cargo clippy --locked --workspace --all-targets -- -D warnings
 	npm run check
+	python3 scripts/generate-contract.py --check
 	$(MAKE) secret-check
 
 unit:
-	cargo test --locked --workspace
+	cargo test --locked --workspace --lib
 	python3 tests/acceptance/run.py --suite fixtures
 
 fixtures:
@@ -23,9 +24,10 @@ integration:
 acceptance:
 	python3 tests/acceptance/stack.py run -- python3 tests/acceptance/run.py --suite acceptance
 
-# Requires an explicit synthetic batch and credential file; no default credentials.
+# Measures only generated synthetic traffic against an isolated native release server.
 benchmark:
-	python3 benchmarks/http.py $(BENCHMARK_ARGS)
+	cargo build --release --locked -p analytics-server
+	python3 tests/acceptance/stack.py run -- python3 benchmarks/service.py
 
 secret-check:
 	python3 tests/acceptance/secret_check.py
@@ -37,3 +39,6 @@ local-up:
 local-down:
 	@test -n "$(STATE)" || (echo "STATE is required"; exit 1)
 	python3 tests/acceptance/stack.py down --state "$(STATE)"
+
+contract:
+	python3 scripts/generate-contract.py

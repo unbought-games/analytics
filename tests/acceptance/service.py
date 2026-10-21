@@ -1,4 +1,5 @@
 """Launch the actual local Rust binary with protected synthetic configuration."""
+import re
 import json
 import os
 from pathlib import Path
@@ -10,11 +11,11 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from client import Client
 from fixtures.server import FixtureServer
-from stack import ROOT, load_state, grant_runtime
+from stack import ROOT, load_state, grant_runtime, compose
 
 
 class Service:
-    def __init__(self, name="service", address=None):
+    def __init__(self, name="service", address=None, database="analytics"):
         self.state = load_state(os.environ["ANALYTICS_STACK_STATE"])
         self.directory = Path(self.state["directory"]) / name
         self.directory.mkdir(mode=0o700)
@@ -22,7 +23,7 @@ class Service:
         self.secrets.mkdir(mode=0o700)
         self.exports = self.directory / "exports"
         self.exports.mkdir(mode=0o700)
-        self.binary = ROOT / "target/debug/analytics-server"
+        self.binary = Path(os.getenv("ANALYTICS_TEST_BINARY", str(ROOT / "target/debug/analytics-server")))
         if not self.binary.is_file():
             raise RuntimeError("build the real analytics-server binary first")
         with socket.socket() as port:
@@ -38,6 +39,16 @@ class Service:
         self.log_handle = self.log.open("xb")
         self.log.chmod(0o600)
         self.process = None
+        self.database = database
+        if database != "analytics":
+            if not re.fullmatch(r"[a-z_][a-z0-9_]{0,50}", database):
+                raise ValueError("invalid synthetic database name")
+            compose(self.state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", "postgres", "-v", "ON_ERROR_STOP=1", input="CREATE DATABASE " + database + ";", text=True, capture_output=True)
+            for key in ("ANALYTICS_DATABASE_URL_FILE", "ANALYTICS_RUNTIME_DATABASE_URL_FILE"):
+                target = self.directory / key.lower()
+                target.write_text(Path(self.env[key]).read_text().rsplit("/",1)[0] + "/" + database)
+                target.chmod(0o600)
+                self.env[key] = str(target)
 
     def command(self, *args, check=True):
         # Only non-secret CLI parameters. DSN and credentials remain protected files.
@@ -45,7 +56,7 @@ class Service:
 
     def migrate_bootstrap(self):
         self.command("migrate")
-        grant_runtime(self.state)
+        grant_runtime(self.state, self.database)
         self.env["ANALYTICS_DATABASE_URL_FILE"] = self.env["ANALYTICS_RUNTIME_DATABASE_URL_FILE"]
         handoff = self.directory / "bootstrap.json"
         self.command("bootstrap", "--owner", "synthetic-owner", "--agent", "synthetic-agent", "--output", str(handoff), "--expires-days", "30")
@@ -82,6 +93,8 @@ class Service:
         self.oidc.shutdown()
         self.oidc_thread.join(timeout=5)
         self.oidc.server_close()
+        if self.database != "analytics":
+            compose(self.state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", "postgres", "-v", "ON_ERROR_STOP=1", input="DROP DATABASE " + self.database + " WITH (FORCE);", text=True, capture_output=True)
 
     def __enter__(self):
         return self

@@ -1,0 +1,62 @@
+import fs from 'node:fs';
+import readline from 'node:readline';
+import assert from 'node:assert/strict';
+import {chromium} from '@playwright/test';
+const configuration = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const input = readline.createInterface({input: process.stdin});
+async function checkpoint(phase, details={}) {
+  process.stdout.write(JSON.stringify({phase,...details})+'\n');
+  await new Promise(resolve => input.once('line', resolve));
+}
+const browser = await chromium.launch();
+try {
+  const page = await browser.newPage();
+  const batches = [];
+  page.on('request', req => { if(req.url().endsWith('/v1/ingest/browser')) batches.push(req.postDataJSON()); });
+  await page.goto(configuration.company+'/open?utm_campaign=live-synthetic&utm_source=fixture&private_value=never-export#private-fragment');
+  await page.evaluate(async()=>{await window.ready;document.querySelector('#explore').click();history.pushState({},'', '/learn');await client.flush();});
+  const coverage = await page.evaluate(()=>client.getCoverage());
+  assert.equal(coverage.accepted,3);
+  assert.equal(batches.length,1);
+  assert.equal(batches[0].events[0].touch_id,undefined);
+  assert.equal(batches[0].events[1].touch_id,batches[0].events[0].event_id);
+  assert.ok(!JSON.stringify(batches).includes('never-export'));
+  assert.ok(!JSON.stringify(batches).includes('private-fragment'));
+  const sourceContext = await page.evaluate(()=>client.getJourneyContext());
+  const gameHandoff = await page.evaluate(destination=>client.createHandoff(destination),configuration.game);
+  await page.goto(configuration.game+'/play');
+  await page.evaluate(async handoff=>{await window.ready;await client.redeemHandoff(handoff);await client.flush();},gameHandoff);
+  const identityHandoff = await page.evaluate(destination=>client.createHandoff(destination),configuration.identity);
+  await page.goto(configuration.identity+'/signup');
+  await page.evaluate(async handoff=>{await window.ready;await client.redeemHandoff(handoff);await client.flush();},identityHandoff);
+  await page.click('#authenticate');
+  await page.waitForURL(configuration.identity+'/signup');
+  await page.evaluate(async()=>{await window.ready;await client.flush();});
+  const rolledBack = await page.evaluate(async()=> (await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({journey:client.getJourneyContext(),rollback:true})})).json());
+  assert.equal(rolledBack.committed,false);
+  await checkpoint('ready_signup',{sourceContext,firstBatch:batches[0]});
+  const signup = await page.evaluate(async()=> (await fetch('/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({journey:client.getJourneyContext()})})).json());
+  assert.equal(signup.committed,true);
+  await checkpoint('signup_committed',{signup});
+  const enrollmentHandoff = await page.evaluate(destination=>client.createHandoff(destination),configuration.game);
+  await page.goto(configuration.game+'/play');
+  await page.evaluate(async handoff=>{await window.ready;await client.redeemHandoff(handoff);await client.flush();},enrollmentHandoff);
+  const enrollment = await page.evaluate(async()=> (await fetch('/enrollment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({journey:client.getJourneyContext()})})).json());
+  assert.equal(enrollment.committed,true);
+  await checkpoint('enrollment_committed',{enrollment});
+  const action = await page.evaluate(async()=> (await fetch('/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({journey:client.getJourneyContext()})})).json());
+  assert.equal(action.committed,true);
+  await checkpoint('action_committed',{action});
+  const scheduled = await page.evaluate(async()=> (await fetch('/scheduled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({journey:client.getJourneyContext()})})).json());
+  assert.equal(scheduled.committed,true);
+  await checkpoint('scheduled_committed',{scheduled});
+  const before = await page.evaluate(()=>client.getJourneyContext());
+  await page.evaluate(async()=>{client.reset();document.querySelector('#explore').click();await client.flush();});
+  const after = await page.evaluate(()=>client.getJourneyContext());
+  assert.notEqual(before.visitor_id,after.visitor_id);
+  assert.equal(after.touch_id,null);
+  process.stdout.write(JSON.stringify({phase:'complete',scheduled,sourceContext,signup,action,resetVerified:true})+'\n');
+} finally {
+  input.close();
+  await browser.close();
+}

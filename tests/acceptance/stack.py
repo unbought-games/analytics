@@ -106,8 +106,8 @@ def environment(state):
         ANALYTICS_EVIDENCE_DIR=str(directory / "evidence"))
 
 
-def grant_runtime(state):
-    compose(state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", "analytics", "-v", "ON_ERROR_STOP=1", input="GRANT USAGE ON SCHEMA public TO analytics_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO analytics_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO analytics_runtime;", text=True, stdout=subprocess.DEVNULL)
+def grant_runtime(state, database="analytics"):
+    compose(state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", database, "-v", "ON_ERROR_STOP=1", input="GRANT USAGE ON SCHEMA public TO analytics_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO analytics_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO analytics_runtime;", text=True, stdout=subprocess.DEVNULL)
 
 
 def start_engine(state):
