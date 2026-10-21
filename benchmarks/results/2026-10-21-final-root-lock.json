@@ -1,0 +1,231 @@
+{
+  "normal": {
+    "schema_version": 1,
+    "recorded_at": "2026-10-21T20:43:05.309140+00:00",
+    "revision": "4b1bee343837afca008d68eda1830fc07bd733db",
+    "working_tree_dirty": false,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6",
+    "cpu_count": 12,
+    "workload": {
+      "requests": 250,
+      "concurrency": 4,
+      "events_per_request": 20,
+      "timeout_seconds": 10,
+      "request_bytes": 3368000
+    },
+    "elapsed_seconds": 1.3405263749999998,
+    "responses": {
+      "200": 250
+    },
+    "accepted_events": 5000,
+    "event_outcomes": {
+      "accepted": 5000
+    },
+    "http_refused_events": 0,
+    "unacknowledged_events": 0,
+    "accepted_request_latency_ms": {
+      "p50": 19.49962500000002,
+      "p95": 30.466832999999998,
+      "p99": 40.905542000000004
+    },
+    "accepted_events_per_second": 3729.8781234349085,
+    "request_latency_ms": {
+      "p50": 19.49962500000002,
+      "p95": 30.466832999999998,
+      "p99": 40.905542000000004,
+      "max": 59.061666,
+      "mean": 21.05830782
+    },
+    "limitations": [
+      "Client elapsed latency includes JSON handling and connection establishment.",
+      "No server RSS, database impact, or export memory is inferred from HTTP latency.",
+      "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."
+    ],
+    "service_rss": {
+      "samples": 27,
+      "interval_target_ms": 50,
+      "baseline_bytes": 14581760,
+      "peak_bytes": 17104896,
+      "final_bytes": 17104896
+    },
+    "client_exit_code": 0,
+    "independently_persisted_before_recovery": 5000,
+    "recovery": {
+      "resolved": true,
+      "events": 0,
+      "persisted_at_initial_snapshot": 0,
+      "persisted_after_retry": 0,
+      "stable_ids_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "responses": {
+        "accepted": 0,
+        "duplicate": 0
+      },
+      "recovery_seconds": 2.3415999999887305e-05,
+      "semantics": "Recovery follows timed load; initial throughput never includes recovered acknowledgments."
+    },
+    "independently_persisted_events": 5000,
+    "durable_counters": {
+      "accepted": "5000",
+      "client_reported_dropped": "0"
+    }
+  },
+  "burst": {
+    "schema_version": 1,
+    "recorded_at": "2026-10-21T20:43:07.419802+00:00",
+    "revision": "4b1bee343837afca008d68eda1830fc07bd733db",
+    "working_tree_dirty": false,
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6",
+    "cpu_count": 12,
+    "workload": {
+      "requests": 700,
+      "concurrency": 32,
+      "events_per_request": 100,
+      "timeout_seconds": 10,
+      "request_bytes": 47118400
+    },
+    "elapsed_seconds": 1.809831458,
+    "responses": {
+      "200": 131,
+      "503": 569
+    },
+    "accepted_events": 13100,
+    "event_outcomes": {
+      "accepted": 13100
+    },
+    "http_refused_events": 56900,
+    "unacknowledged_events": 0,
+    "accepted_request_latency_ms": {
+      "p50": 212.0772500000001,
+      "p95": 232.9658750000001,
+      "p99": 237.08108399999995
+    },
+    "accepted_events_per_second": 7238.243065172757,
+    "request_latency_ms": {
+      "p50": 2.8472079999999345,
+      "p95": 219.3830000000001,
+      "p99": 232.9257920000001,
+      "max": 242.90416600000003,
+      "mean": 40.78606283285714
+    },
+    "limitations": [
+      "Client elapsed latency includes JSON handling and connection establishment.",
+      "No server RSS, database impact, or export memory is inferred from HTTP latency.",
+      "A successful HTTP status is not counted as accepted unless per-event acknowledgment says accepted."
+    ],
+    "service_rss": {
+      "samples": 34,
+      "interval_target_ms": 50,
+      "baseline_bytes": 17252352,
+      "peak_bytes": 25903104,
+      "final_bytes": 25903104
+    },
+    "client_exit_code": 0,
+    "independently_persisted_before_recovery": 13100,
+    "recovery": {
+      "resolved": true,
+      "events": 0,
+      "persisted_at_initial_snapshot": 0,
+      "persisted_after_retry": 0,
+      "stable_ids_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "responses": {
+        "accepted": 0,
+        "duplicate": 0
+      },
+      "recovery_seconds": 1.1708999999804348e-05,
+      "semantics": "Recovery follows timed load; initial throughput never includes recovered acknowledgments."
+    },
+    "independently_persisted_events": 13100,
+    "durable_counters": {
+      "accepted": "13100",
+      "client_reported_dropped": "0"
+    }
+  },
+  "controlled_lost_ack_probe": {
+    "resolved": true,
+    "events": 2,
+    "persisted_at_initial_snapshot": 0,
+    "persisted_after_retry": 2,
+    "stable_ids_sha256": "de75aba3d64e809ec55f559aec8c638e63906994a3ead430aa33ab49bccd4c24",
+    "responses": {
+      "accepted": 2,
+      "duplicate": 0
+    },
+    "recovery_seconds": 0.20016049999999996,
+    "semantics": "Recovery follows timed load; initial throughput never includes recovered acknowledgments.",
+    "response_read": false,
+    "subsequent_replay_all_duplicate": true
+  },
+  "export": {
+    "rows": 100000,
+    "bytes": 16988895,
+    "sha256": "c3a0050a0d1b3cb4ebb0922af1d16813b058c930bbc9823536976b963f72436c",
+    "create_to_verified_download_seconds": 2.6557833330000005,
+    "reconnected_download_first_chunk_ms": 23.051499999999336,
+    "reconnected_download_total_ms": 2394.623375,
+    "service_rss": {
+      "samples": 48,
+      "interval_target_ms": 50,
+      "baseline_bytes": 26034176,
+      "peak_bytes": 27574272,
+      "final_bytes": 27574272
+    },
+    "source_db_cumulative_delta": {
+      "xact_commit": 9,
+      "blks_read": 81,
+      "blks_hit": 3957,
+      "tup_returned": 100918,
+      "tup_fetched": 100913,
+      "temp_bytes": 0
+    },
+    "source_snapshot_semantics": {
+      "coverage_basis": "administrator-declared source history; not inferred from row count",
+      "environment": "benchmark",
+      "kind": "postgres",
+      "null_semantics": "null distinct from absent and zero",
+      "numeric_encoding": "decimal_string_recursive",
+      "snapshot_semantics": "independent source reads; PostgreSQL repeatable-read transaction; vendor pages independent",
+      "source_id": "7414d923-770e-416f-9eb8-d6c9920cc0fe"
+    },
+    "query_budget": {
+      "timeout_ms": 30000,
+      "max_rows": 100000,
+      "max_bytes": 67108864,
+      "max_concurrency": 2
+    }
+  },
+  "configuration": {
+    "recorded_at": "2026-10-21T20:43:13.673983+00:00",
+    "revision": "4b1bee343837afca008d68eda1830fc07bd733db",
+    "dirty": false,
+    "source_tree_hashes": {
+      "crates": "668c978b1e7cfc058f96c2848f119b2460f09da6",
+      "migrations": "50d4aac27d550106f2954fbaf94c5f1e6b2c18e9",
+      "Cargo.lock": "4c65e45b33023f60b514d81c853e6246d90bce0e",
+      "packages/browser": "b82c1d4fc6307ce44faf92c1754828d18345deb2",
+      "examples/producers": "a0099b02953482fa59825bb023e31fbbac965172",
+      "tests/acceptance": "67286a06e1f3094c3d7d30f40fcaffe362148f48",
+      "benchmarks": "53422fa2c5bde0bbcf403e9fd3ff78fad60f6f19"
+    },
+    "service_build": "native cargo --release; default optimization; no service CPU cap; global HTTP admission16",
+    "database": "postgres17.7 containers;1CPU/512MiB each",
+    "rss_method": "ps RSS bytes sampled every50ms; may miss shorter peaks",
+    "source_impact": "pg_stat_database counters include fixture polling; cumulative stats may lag",
+    "outage": "separate actual browser transactional signup/outbox test; not inferred from throughput"
+  },
+  "budget_evaluation": {
+    "controlled_unknown_retry": true,
+    "all_requests_accounted": true,
+    "normal_without_refusal_or_unknown": true,
+    "unknown_transport_reconciled": true,
+    "acknowledged_events_persisted": true,
+    "normal_p95": true,
+    "normal_p99": true,
+    "rss": true,
+    "stream_incremental_rss": true,
+    "export_rows": true,
+    "burst_backpressure_observed": true
+  },
+  "passed": true
+}

@@ -1,4 +1,4 @@
-.PHONY: build check unit integration acceptance benchmark fixtures secret-check local-up local-down
+.PHONY: build check unit integration acceptance benchmark fixtures secret-check local-up local-down contract
 
 build:
 	cargo build --locked --workspace

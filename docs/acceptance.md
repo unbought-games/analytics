@@ -1,57 +1,52 @@
-# Acceptance evidence
+# Controlled acceptance evidence
 
-Status: infrastructure checkpoint. A01–A14 are all required; none is signed off by this document yet. No production deployment, real collection, or six-month live result is claimed.
+This repository is tested with manufactured identities, events and external sources. No production database, real player export, deployment, campaign launch, package publication or image publication is part of these checks. A completed synthetic suite does not mean a deployment is collecting live data.
 
-## Commands actually run
+## Reproduce
 
-On 2026-10-21, on an ARM64 development host with Docker 29.7.2, Rust 1.99.0, Node 24.18.0 and Python 3.9.6:
+Prerequisites: Docker/Compose v2, Rust 1.99.0, Node 24, Python 3.9+ and `uv` 0.9.5. The official MCP client uses its locked Python 3.13 environment. CI runs Python 3.13 and installs Chromium.
 
-| Command | Actual result |
+```sh
+npm ci
+npm --prefix examples/producers ci --ignore-scripts
+npx playwright install --with-deps chromium
+make build check
+make acceptance
+```
+
+`make acceptance` generates fresh protected credentials and randomly named disposable Compose resources. It executes 22 commands: fixture/client/database/build-boundary checks, the full Rust workspace, the independent review regression explicitly including its default-ignored case, real TypeScript producer recovery, analytical boundaries, real Chromium unit/service checks, composed HTTP/MCP/OIDC/vendor/export/restore tests, the live cross-property journey, independent fresh CLI and release-container installations, contract and package checks, and the native release benchmark. The benchmark has separate 5,000-event normal and 70,000-event burst workloads plus a 100,000-row export and a real-socket lost-acknowledgment recovery probe. Run `make benchmark` separately to reproduce those measurements.
+
+The runner writes exact commands, exit codes, elapsed times, revision, dirty status and source-tree hashes to ignored `artifacts/acceptance/commands.json`. The benchmark writes `artifacts/benchmarks/service.json`; CI uploads only those two explicitly named files. No absent prerequisite, skipped-only suite, failed command, unresolved transport batch or failed performance gate is counted as acceptance. `acceptance_complete` describes this controlled environment only.
+
+## Requirement-to-evidence mapping
+
+| ID | Executable evidence |
 | --- | --- |
-| `python3 -m unittest discover -s tests/acceptance -p test_fixtures.py -v` | 4 passed: real HTTP fixtures, signed OIDC authorization-code/PKCE, replay rejection, vendor gaps/pagination/errors |
-| `python3 -m unittest discover -s tests/acceptance -p test_client.py -v` | 4 passed: authenticated streaming retrieval, checksum/size/rows, no overwrite, origin/redirect/path boundaries, protected credentials |
-| `python3 -m unittest discover -s tests/acceptance -p test_build_context.py -v` | 2 passed: actual Docker build context excludes manufactured private/local handoff files and includes only intended build inputs |
-| `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_stack.py -v` | 4 passed against PostgreSQL 17.7 (latest run includes Task 5 rows): typed manufactured cohort source equality, narrow reader, write/private-schema/timeout denial, lossless values, real backup/restore, reachable fixture; resources removed |
+| A01 Independent setup | `test_container.py` builds the release image, runs migrations with a separate credential, bootstraps with protected handoff, serves under a restricted runtime role and initializes a real remote MCP client. `cli_smoke.py` independently starts from an empty database. |
+| A02 Capture | 27 Chromium behaviors plus `test:browser:service` and `browser_journey.mjs` verify initial/SPA/delegated capture once, same-batch tagged landing references, sanitized URL/query/fragment/control data and reset. |
+| A03 Campaign continuity | Three actual origins traverse company → game → identity → game using audience-bound handoffs. Signup selects the actual retained touch; the report joins separately authorized origin visit/touch exports. Rust database suites cover cancel/retry/expiry/invalid audience/untagged/later campaign/login boundaries. |
+| A04 Identity | Real OIDC authorization code/PKCE and signature-checked callback bind a subject to a distinct application account and player. Actual exported mappings join enrollment/action evidence. Rust and analysis suites cover multiple worlds/issuers, logout, unknown/deleted identities and scoped UUID reuse. |
+| A05 Authoritative delivery | Live browser signup commits its application fact and native journal while analytics is stopped; rollback emits neither, dispatcher recovery deduplicates. Rust and TypeScript producer tests recover 10,025 facts after queue saturation/loss without blocking further application commits; late commits, quarantine and retention gaps are explicit. |
+| A06 Profiles and privacy | Database tests enforce all profiles, schema allowlists, choice/GPC/withdrawal/reset/deletion, retention and anti-escalation. Chromium tests verify effective policy and queue purging. Unknown or immature linkage remains unavailable in reports. |
+| A07 Source queries | Actual restricted PostgreSQL roles and parser/column/function boundaries, cancellation and budgets are tested in the query suites. Composed MCP discovers/configures and exports manufactured source tables through protected secret references. |
+| A08 Files | Real MCP export jobs, independent reconnect/download clients and the official SDK verify bytes, SHA-256, types, nulls and lossless numbers. Query and independent-review suites cover partial/failure/cancel/expiry/revocation, generation invalidation and cleanup beyond 1,000 terminal jobs. |
+| A09 External analysis | The real journey downloads six genuine server manifests/datasets and invokes the external CLI. It observes one verified conversion, one enrolled account and one first-observed player. Separately, eight genuine PostgreSQL exports test complete versus unknown source history. |
+| A10 Cohorts | 43 analysis tests exercise exact D1/D7/D30/D180 action and maturity boundaries, multiple memberships, missing history, deletion, exclusions and zero denominators. Manufactured dates establish D180 logic; the live journey's immature conversion/retention rates stay null. |
+| A11 Performance | Committed browser compressed-byte/interaction/volume/queue/heap measurements; unchanged release normal/burst latency gates, explicit refusal/unknown accounting, database reconciliation, sampled RSS and 100,000-row export measurements. Initial failed latency and transport-unknown runs are retained. See `benchmarks/README.md`. |
+| A12 Handoff | Combined OpenAPI generation/check resolves all references and preserves browser wire types; actual npm package inventory allows only 16 intended files. Operations cover protected setup, runtime permissions, source access, privacy/retention, tested engine restore and separate release steps. |
+| A13 External observability | Actual Rust adapters query controlled Prometheus instant/range/empty and Sentry paginated issue/event/detail APIs. Typed downloaded files preserve gaps/special values and release/time correlation; sensitive fields, unauthorized project paths, rate limits and unavailable results are explicitly checked. No vendor mutation is introduced. |
+| A14 Auth and parity | Real human OIDC and unattended agent access share grants. The official `mcp==2.3.0` client checks discovery, handshake, administration, scoped denial, same-session/reconnect revocation and artifact checksums. CLI/database suites prove atomic bootstrap, rotation and recovery. Runtime cannot create roles/databases/schemas, alter tables or modify migration history. Shared admission/deadlines are tested against real slow TCP clients. |
 
-These commands were run on the foundation contract checkpoint `3b752ee2d24819444dc7195c47c90fb44410eb3b` plus the integration working changes. The integration commit is reported in the handoff; the machine-readable runner records exact HEAD and dirty state for subsequent runs. Infrastructure tests do not claim Rust adapter, human sign-in, browser or end-to-end application behavior.
+## Recorded results and revision boundaries
 
-The analysis checkpoint `9a42d20855ac14bd28b222ecb122193d027e7847` was imported separately. `python3 -m unittest discover -s examples/analysis -p 'test_*.py' -v` ran all 32 tests successfully here. Actual PostgreSQL fixture loading now preserves all four datasets' rows, booleans, nested history strings and duplicate deliveries. This does not yet prove the engine query/export path. The prepared `service.py` and `export_cohorts.py` helpers will exercise that path after the service modules arrive.
+- The first full functional `make acceptance` run completed all then-current **20 commands successfully**, including Rust ingestion's 11 database suites (79.81 s), explicit independent review, TypeScript recovery, 43 analysis tests, 27 Chromium tests, seven composed-service tests (17.978 s), actual journal-based journey, fresh CLI setup, release container installation (88.469 s), contract drift and package checks. It was marked dirty while acceptance fixtures/evidence were strengthened; it is not final clean-head evidence.
+- The runtime/restore test includes nonempty accepted event, immutable acquisition and verified identity-map rows; row hashes and migration/principal/grant/credential/audit/config/export counts match after restore. Existing files still pass checksum verification, revoked credentials remain denied, duplicate bootstrap fails, and new exports/reports succeed.
+- Linux CI exposed a dynamic-port bug when Compose recreated the fixture dependency. `6f8d25c` fixes the startup order: dependencies finalize first, the advertised port is then read, and engine startup uses `--no-deps`. The deterministic forced-recreation test passed locally (66.341 s), asserting stable container identity/port through startup and actual host readiness/MCP. Public CI verifies Linux behavior.
+- Final timeout protection's eight focused tests passed (1.01 s), including real headers-only requests and nonreading/unpolled response streams. Request and stream deadlines reclaim capacity without relying on a client to consume bytes.
+- The unchanged optimized workload passed on clean `4b1bee3` with the authoritative public lockfile. Normal p95/p99 were **30.47/40.91 ms** against **250/1,000 ms** limits; all 5,000 normal events persisted. Burst explicitly accounted for 13,100 acknowledgments and 56,900 HTTP refusals. A separate real-socket uncertain-ACK probe reconciled/retried exact stable IDs. Export and RSS gates passed. Full raw results, prior failures and source-tree hashes are committed under `benchmarks/results/`.
 
-Additional integrated commands passed before the final full-suite run:
+Task commit hashes can differ from public cherry-picks or squash history. Match recorded crate/migration/lock/browser/producer/harness tree hashes to identify equivalent source; final public CI records the actual public revision. The final expanded 22-command clean-head run and public CI outcome must be recorded after they finish. Until then, individual measured gates above are verified but final-head acceptance remains pending.
 
-- `python3 tests/acceptance/stack.py run -- cargo test --locked -p analytics-server -p analytics-ingest --tests`: foundation security and all then-current ingestion tests passed with real PostgreSQL, no skipped tests.
-- `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_service.py -v`: five tests passed (9.686s), covering CLI/MCP, real OIDC code flow, eight actual cohort exports with complete versus unknown coverage, restricted runtime database role, and complete engine database/export restore followed by fresh exports.
-- `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_container.py -v`: real release image built, migrated with separate migration credentials, bootstrapped/served with runtime credentials, and passed authenticated MCP identity/tool discovery (74.014s including build). Cleanup includes the engine profile.
+## Practical limits
 
-These are controlled synthetic results. The manufactured D180 result tests definitions and the real export pipeline; it is not a live browser retention claim. The real cross-property browser journey then passed in 10.126 seconds: three real Chromium origins, explicit audience-bound handoffs, actual OIDC code/PKCE and signature-checked callback, rolled-back signup, committed signup during analytics outage, Rust outbox recovery, enrollment/action/scheduled facts, replay deduplication and reset. Six actual MCP-generated scoped exports were downloaded and fed to the external normalizer. It reported one observed verified conversion, one enrolled account and one first-observed player; immature live conversion and D180 rates remained null. No manufactured acquisition file was substituted into this live path.
-
-The official `mcp==2.3.0` SDK passed discovery, initialized tools, authorized administration, restricted/revoked access, and a real 12,220-byte artifact checksum/revocation check. The latest composed service suite additionally queried both controlled vendors through the actual Rust adapters (instant/range/empty, issue pagination/event detail, special values, redaction, rate-limit/unavailable failures and scope denial): seven tests passed in 24.279 seconds.
-
-`make acceptance` now explicitly includes all module tests, the ignored-by-default independent review regression, browser unit and real-service tests, live service/official SDK/restore tests, full browser journey, separate CLI lifecycle and container installs, combined contract drift and npm package inventory checks. Release-mode performance and the final producer/admission corrections are still pending final integration; no final A01–A14 signoff yet.
-
-## Full functional run
-
-`make acceptance` completed all **20 commands successfully** after the journal correction, on the task's integrated history through `6b53804`. The run was marked dirty because the acceptance fixture was being strengthened while it progressed; it is functional evidence, not final clean-head release signoff. Rust ingestion ran 11 database suites, the explicit independent review regression ran despite its default ignored annotation, TypeScript recovered its 10,025-command fixture, 43 analytical tests and 27 Chromium tests passed, and the real journal-based cross-property journey, official MCP client, vendor adapters, nonempty engine restore, fresh CLI lifecycle and release container installation all passed. Contract regeneration and actual npm package inventory checks also passed.
-
-The restore now includes nonempty accepted signup/acquisition/verified identity-map facts and compares hashes of their rows across the restored database, then verifies existing artifact checksums, revoked access and fresh exports. Original source tree hashes accompany benchmark evidence so equivalent cherry-picked public revisions can be identified independently of task commit hashes. Final public CI and the optimized A11 workload remain pending.
-
-## Required integration matrix
-
-| ID | Required remaining evidence |
-| --- | --- |
-| A01 | Empty install → migrations → bootstrap → browser/backend → MCP identity and first export |
-| A02 | Real-browser initial/SPA/delegated automatic capture, once-only listeners and sanitation |
-| A03 | Tagged cross-property signup/enrollment/action; cancel/retry/expired/invalid/untagged/later/login cases |
-| A04 | Different issuer/account/player IDs, multiple worlds, logout/shared device, unmapped/deleted identities |
-| A05 | Transactional rollback/outbox recovery/dedup/conflicts/late commits and scheduled-action exclusion |
-| A06 | All three enforced profiles, opt-out/withdrawal/deletion and no browser privilege escalation |
-| A07 | Engine adapter with restricted real PostgreSQL, forbidden SQL/functions/scopes, timeouts and cancellation |
-| A08 | Engine-created durable manifests and real MCP reconnect/download; checksums/types/nulls/order/expiry/failure/revocation |
-| A09 | Four remotely exported datasets joined by the external report CLI with reproducible source references |
-| A10 | Exact mature/immature D1/D7/D30/D180 boundaries, exclusions, unknown/expired history and zero denominator |
-| A11 | Measured browser/ingestion/query/export normal/burst/failure budgets, service RSS and database impact |
-| A12 | Tested contracts/install/source/privacy/restore/release documentation and exact revision |
-| A13 | Rust adapters query controlled Prometheus/Sentry HTTP; scopes, redaction, rate-limit/pagination/unavailable/gaps; local time/release correlation |
-| A14 | Real human OIDC and unattended MCP clients; atomic repeated/concurrent bootstrap, parity, scopes, rotation/revocation/recovery and audit |
-
-`make acceptance` fails when required integrated components or the real journey test are absent. `run.py` writes commands, return codes, elapsed time, revision and missing prerequisites to ignored `artifacts/acceptance/commands.json`. No skipped or missing case is promoted to product acceptance. Proposed benchmark budgets live in `benchmarks/budgets.json`; no measured service numbers exist at this checkpoint.
+Browser delivery remains best effort. An HTTP overload response itself can be lost; absent acknowledgment is unknown acceptance, requiring stable-ID retry and reconciliation. The benchmark never folds recovery into measured throughput or relabels an unknown as a refusal. Source histories have independent snapshots, and incomplete coverage never becomes a measured zero. RSS sampling may miss shorter peaks and recorded throughput is hardware/workload-specific. Downloaded artifacts and reports inherit deletion/retention obligations; local files do not disappear when remote access is revoked. Deployment and publication remain separately authorized work.

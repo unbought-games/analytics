@@ -51,3 +51,14 @@ An early HTTP/1 overload response can be lost while the sender is still transmit
 The driver now records exception classes and retains synthetic unacknowledged batches in mode-0600 ignored files. Request accounting partitions every event into acknowledged outcomes, explicit HTTP refusals, or transport-unknown. After timed load ends, the service benchmark checks the unknown stable IDs in PostgreSQL, retries only those exact batches with bounded backoff, and requires accepted/duplicate results plus exact final ID reconciliation. Recovery counts and time never enter the original latency or throughput samples. Unresolved batches, conflicts, missing acknowledged rows, or unexpected normal-load refusals still fail the run. Latency and memory thresholds are unchanged.
 
 A separate deterministic probe closes a real HTTP socket after sending two events without reading an acknowledgment. It verifies database reconciliation, stable-ID retry and subsequent duplicate-only replay, even when a particular burst happens to receive every response. No body draining or admission/deadline protection is disabled to force a response-delivery guarantee.
+
+## Final public dependency graph
+
+`2026-10-21-final-root-lock.json` is the clean `4b1bee3` run using the authoritative public integration lockfile (its blob hash and all relevant source tree hashes are in the report). All eleven gates passed, including persisted-row reconciliation and the deterministic real-socket lost-acknowledgment probe:
+
+- Normal: 5,000 acknowledged and independently persisted events, zero refusals/unknowns, 3,729.88 events/s; accepted-request p50/p95/p99 **19.50/30.47/40.91 ms**.
+- Burst: 13,100 acknowledged/persisted events, 56,900 explicit HTTP 503 refusals, zero transport-unknowns in this particular run; accepted-request p95 **232.97 ms**. Recovery logic remains required for runs with genuine uncertainty.
+- Controlled lost-acknowledgment probe: two stable IDs sent without reading the response, zero present at the first database snapshot, both accepted on bounded retry, both present afterward, and both duplicates on another replay. This probe is outside timed traffic.
+- Sampled RSS peaks: **17.10 MB** normal, **25.90 MB** burst, **27.57 MB** during export. The 100,000-row/16,988,895-byte export was checksum-verified in **2.656 s**; reconnect first 64 KiB **23.05 ms**, full download **2.395 s**.
+
+`make acceptance` runs the same release benchmark as its final gate and uploads only the explicit non-secret result JSON in CI. The local full-suite and public CI results are tracked separately in `docs/acceptance.md`. None of these figures is a claim about production throughput or real player retention.
