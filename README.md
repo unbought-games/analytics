@@ -28,6 +28,8 @@ npm ci
 npm --prefix examples/producers ci --ignore-scripts
 npx playwright install --with-deps chromium
 make fixtures       # controlled OIDC/vendor fixtures and artifact client tests
+make analysis       # fixtures plus deterministic cohort/retention analysis
+make test-ci        # validation selection, including Git moves/deletions
 make integration    # disposable PostgreSQL, restore checks and Rust workspace tests
 make acceptance     # full synthetic journey, auth, restore, packaging and performance gates
 ```
@@ -35,3 +37,27 @@ make acceptance     # full synthetic journey, auth, restore, packaging and perfo
 `stack.py` generates protected credentials, random Compose project names and loopback-only ports. Normal test completion, failure and interruption clean up only that run's containers and volumes. No production connection or external account is required. See [operations](docs/operations.md) for retained local stacks, cleanup and restore boundaries.
 
 Browser-to-producer-to-MCP-to-report acceptance runs against [the versioned contracts](docs/contracts.md). The live journey includes a real OIDC client, transactional signup/outage recovery, authenticated exports and external analysis. See the acceptance record for exact tested boundaries, and the CI artifact for the public revision being evaluated. [Benchmark methodology](benchmarks/README.md) distinguishes proposed budgets from measurements.
+
+## Continuous integration
+
+PRs select validation from their complete changed-path set:
+
+| Changes | Validation |
+| --- | --- |
+| Only root README/AGENTS/CHANGELOG or Markdown under `docs/` | Fixture/client tests and tracked-secret scan; no Rust, npm or Docker setup |
+| Only analytical examples, optionally with documentation | Above plus cohort/retention tests |
+| Ingestion, query adapters, browser SDK or producer/static-site examples | Build, static/contract checks and real PostgreSQL/Rust/producer/browser integration, plus HTTP/MCP/OIDC/export/restore checks |
+| Shared core/auth/server, migrations, contracts, root dependencies, packaging, CI/test harnesses, benchmarks or unclassified paths | Full acceptance including fresh installation, cross-property journey, restore, containers and performance |
+
+Mixed changes use the strongest tier. Missing/empty comparisons fail closed to
+full acceptance; deleted and renamed paths retain their original risk. Every
+main push, version-tag push and manual workflow run uses full acceptance. Image
+publication still requires successful full acceptance on a push. No scheduled
+validation is added. The existing `acceptance` check name remains stable; inspect
+its selection step and command artifact for the suite that actually ran.
+
+npm download caches cover both lockfiles. Rust caches include compiler and
+dependency identity, exclude toolchain binaries, and are saved only by successful
+main pushes. PRs restore those caches without publishing shared Rust entries.
+Superseded PR runs are cancelled; different main revisions keep their validation
+and publication runs. The first run for a new cache key is cold.

@@ -14,12 +14,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=["fixtures", "integration", "acceptance"], default="fixtures")
+    parser.add_argument("--suite", choices=["fixtures", "analysis", "integration", "acceptance"], default="fixtures")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts" / "acceptance" / "commands.json")
     args = parser.parse_args()
     python = sys.executable
     commands = [[python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_fixtures.py", "-v"], [python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_client.py", "-v"], [python, "tests/acceptance/secret_check.py"]]
     missing = []
+    if args.suite == "analysis":
+        commands.append([python, "-m", "unittest", "discover", "-s", "examples/analysis", "-p", "test_*.py", "-v"])
     if args.suite in ("integration", "acceptance"):
         if not os.getenv("ANALYTICS_STACK_STATE"):
             missing.append("isolated stack environment; invoke through stack.py run")
@@ -38,6 +40,10 @@ def main():
                 commands.append(["npm", "run", "test:browser:service"])
             else:
                 missing.append("browser workspace package.json")
+    if args.suite == "integration" and not missing:
+        # Keep real HTTP/MCP/OIDC, external exports and restore coverage in the
+        # routine path; container installation and performance stay in acceptance.
+        commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_service.py", "-v"])
     if args.suite == "acceptance":
         # Never allow discovery of zero tests to turn missing acceptance coverage green.
         # Do not allow unittest's 'Ran 0 tests OK' to turn missing coverage green.

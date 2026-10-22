@@ -18,6 +18,13 @@ make acceptance
 
 The runner writes exact commands, exit codes, elapsed times, revision, dirty status and source-tree hashes to ignored `artifacts/acceptance/commands.json`. The benchmark writes `artifacts/benchmarks/service.json`; CI uploads only those two explicitly named files. No absent prerequisite, skipped-only suite, failed command, unresolved transport batch or failed performance gate is counted as acceptance. `acceptance_complete` describes this controlled environment only.
 
+PRs use the [change-based CI tiers](../README.md#continuous-integration). The
+`analysis` suite runs fixture/client/secret checks and the cohort analysis tests
+without a native stack. Routine `integration` also includes the composed service
+HTTP/MCP/OIDC/export/restore tests, including the official MCP SDK. Full acceptance
+remains mandatory on main, tags, manual runs, and high-risk or unclassified PR
+changes. Smaller suites report their own name and never set `acceptance_complete`.
+
 ## Requirement-to-evidence mapping
 
 | ID | Executable evidence |
