@@ -452,3 +452,18 @@ showing a concrete allowed Origin, absent Referer, null request body, four store
 events, exact replay deduplication, forged-subject rejection and fresh reset IDs.
 `npm run check` and the 28-test browser suite also passed. The earlier GET failure
 was the expected reproducer, not a current limitation.
+
+## Explicit application navigation helpers (0.1.1)
+
+`takeHandoff()` removes one `analytics_handoff` fragment parameter and returns its
+validated opaque value before initialization. Duplicates and malformed references
+are removed and rejected; unrelated fragment parameters are retained.
+`handoffURL(client, destination, timeoutMs=1200)` creates an audience-bound reference
+and adds it only as a fragment. Existing fragments remain unchanged. Failure or a
+bounded timeout returns the ordinary destination.
+`linkJourneys(client, allowedOrigins)` installs delegated handling for normal
+same-tab external links and returns a removal function. Modified/new-tab/download
+links retain their native behavior and may have unavailable attribution. These
+helpers do not authenticate users or redeem handoffs; destination applications
+still implement the trusted bridge described above. Never transport account IDs,
+authentication tokens, or server credentials through these helpers.
