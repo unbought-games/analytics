@@ -60,4 +60,6 @@ npm download caches cover both lockfiles. Rust caches include compiler and
 dependency identity, exclude toolchain binaries, and are saved only by successful
 main pushes. PRs restore those caches without publishing shared Rust entries.
 Existing per-ref cancellation is preserved, including superseded PR runs and main
-publication. The first run for a new cache key is cold.
+publication. Manual validation has a separate concurrency group so it cannot
+cancel a push's image publication. The first run for a new cache key is cold.
+Analysis and CI-selection tests reject empty or entirely skipped discovery.

@@ -16,7 +16,7 @@ unit:
 	python3 tests/acceptance/run.py --suite fixtures
 
 test-ci:
-	python3 -m unittest discover -s scripts -p 'test_ci_scope.py' -v
+	python3 scripts/run_python_tests.py scripts
 
 analysis:
 	python3 tests/acceptance/run.py --suite analysis

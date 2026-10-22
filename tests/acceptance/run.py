@@ -21,7 +21,7 @@ def main():
     commands = [[python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_fixtures.py", "-v"], [python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_client.py", "-v"], [python, "tests/acceptance/secret_check.py"]]
     missing = []
     if args.suite == "analysis":
-        commands.append([python, "-m", "unittest", "discover", "-s", "examples/analysis", "-p", "test_*.py", "-v"])
+        commands.append([python, "scripts/run_python_tests.py", "examples/analysis"])
     if args.suite in ("integration", "acceptance"):
         if not os.getenv("ANALYTICS_STACK_STATE"):
             missing.append("isolated stack environment; invoke through stack.py run")
@@ -34,7 +34,7 @@ def main():
             commands.append(["cargo", "build", "--locked", "-p", "analytics-ingest", "--example", "outbox"])
             commands.append(["npm", "--prefix", "examples/producers", "run", "typecheck"])
             commands.append(["npm", "--prefix", "examples/producers", "test"])
-            commands.append([python, "-m", "unittest", "discover", "-s", "examples/analysis", "-p", "test_*.py", "-v"])
+            commands.append([python, "scripts/run_python_tests.py", "examples/analysis"])
             if (ROOT / "package.json").is_file():
                 commands.append(["npm", "run", "test:browser"])
                 commands.append(["npm", "run", "test:browser:service"])
