@@ -12,6 +12,11 @@ def select_suite(paths):
         return "acceptance"
     suite = "fixtures"
     for path in paths:
+        if PurePosixPath(path).name in {
+            "Cargo.toml", "Cargo.lock", "package.json", "package-lock.json",
+            ".npmignore", ".npmrc", ".dockerignore", "Dockerfile",
+        }:
+            return "acceptance"
         # Only prose in known documentation locations can avoid executable checks.
         if path in {"README.md", "AGENTS.md", "CHANGELOG.md"} or (
             path.startswith("docs/") and PurePosixPath(path).suffix == ".md"

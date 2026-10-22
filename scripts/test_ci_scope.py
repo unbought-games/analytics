@@ -30,6 +30,8 @@ class SelectionTests(unittest.TestCase):
             "package-lock.json", "Dockerfile", ".dockerignore", "compose.deploy.yaml",
             ".github/workflows/ci.yml", "tests/acceptance/run.py", "benchmarks/service.py",
             "scripts/ci_scope.py", "docs/example.py", "new-component/main.rs",
+            "packages/browser/package.json", "packages/browser/.npmignore",
+            "examples/producers/package-lock.json", "crates/analytics-ingest/Cargo.toml",
         ):
             with self.subTest(path=path):
                 self.assertEqual(select_suite(["README.md", path]), "acceptance")
