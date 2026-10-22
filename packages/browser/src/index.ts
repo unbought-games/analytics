@@ -56,3 +56,4 @@ export function init(options: Options): AnalyticsClient {
   return proxy;
 }
 export {browserSchemas} from './schemas.js';
+export {takeHandoff, handoffURL, linkJourneys} from './journey.js';
