@@ -46,7 +46,7 @@ PRs select validation from their complete changed-path set:
 | --- | --- |
 | Only root README/AGENTS/CHANGELOG or Markdown under `docs/` | Fixture/client tests and tracked-secret scan; no Rust, npm or Docker setup |
 | Only analytical examples, optionally with documentation | Above plus cohort/retention tests |
-| Ingestion, query adapters, browser SDK or producer/static-site examples | Build, static/contract checks and real PostgreSQL/Rust/producer/browser integration, plus HTTP/MCP/OIDC/export/restore checks |
+| Ingestion, query adapters, browser SDK or producer/static-site examples | Build, static/contract checks, real PostgreSQL/Rust/producer/browser integration, HTTP/MCP/OIDC/export/restore, the cross-property journey and npm package contents |
 | Shared core/auth/server, migrations, contracts, dependency manifests/lockfiles, packaging, CI/test harnesses, benchmarks or unclassified paths | Full acceptance including fresh installation, cross-property journey, restore, containers and performance |
 
 Mixed changes use the strongest tier. Missing/empty comparisons fail closed to

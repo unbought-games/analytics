@@ -21,7 +21,8 @@ The runner writes exact commands, exit codes, elapsed times, revision, dirty sta
 PRs use the [change-based CI tiers](../README.md#continuous-integration). The
 `analysis` suite runs fixture/client/secret checks and the cohort analysis tests
 without a native stack. Routine `integration` also includes the composed service
-HTTP/MCP/OIDC/export/restore tests, including the official MCP SDK. Full acceptance
+HTTP/MCP/OIDC/export/restore tests, including the official MCP SDK, the real
+cross-property journey and npm package contents. Full acceptance
 remains mandatory on main, tags, manual runs, and high-risk or unclassified PR
 changes. Smaller suites report their own name and never set `acceptance_complete`.
 

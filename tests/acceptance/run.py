@@ -41,9 +41,11 @@ def main():
             else:
                 missing.append("browser workspace package.json")
     if args.suite == "integration" and not missing:
-        # Keep real HTTP/MCP/OIDC, external exports and restore coverage in the
-        # routine path; container installation and performance stay in acceptance.
+        # Keep real journeys and package contents in the routine path; repeated
+        # container installation and release performance stay in acceptance.
         commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_service.py", "-v"])
+        commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_journey.py", "-v"])
+        commands.append([python, "tests/acceptance/package_check.py"])
     if args.suite == "acceptance":
         # Never allow discovery of zero tests to turn missing acceptance coverage green.
         # Do not allow unittest's 'Ran 0 tests OK' to turn missing coverage green.
