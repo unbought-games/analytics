@@ -8,8 +8,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: analytics-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: analytics-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   acceptance:
     runs-on: ubuntu-24.04
