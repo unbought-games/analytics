@@ -29,6 +29,7 @@ class ServiceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.service = Service()
+        cls.service.env["ANALYTICS_DATABASE_MAX_CONNECTIONS"] = "4"
         cls.addClassCleanup(cls.service.close)
         cls.service.migrate_bootstrap()
         cls.service.start()

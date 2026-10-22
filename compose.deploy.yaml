@@ -3,6 +3,7 @@ services:
   analytics:
     build: .
     environment:
+      ANALYTICS_DATABASE_MAX_CONNECTIONS: ${ANALYTICS_DATABASE_MAX_CONNECTIONS:-12}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       ANALYTICS_PUBLIC_BASE_URL: ${ANALYTICS_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
     ports:

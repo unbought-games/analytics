@@ -280,3 +280,25 @@ reconfigure affected clients. `bootstrap` cannot reset an initialized installati
 For test stacks and detailed validation evidence, see [operations](operations.md)
 and [acceptance](acceptance.md). Use `compose.deploy.yaml` for this deployment;
 `compose.yaml` and `make local-up` belong to the disposable synthetic test harness.
+
+## Published images and connection budgets
+
+Public releases are available as `ghcr.io/unbought-games/analytics`. Passing main
+builds publish `main` and `sha-<full-commit>`; version tags publish the version
+without its leading `v`. `latest` follows the most recently published stable release, never a
+prerelease. Production operators should resolve their chosen tag to an immutable
+`@sha256:...` digest and retain that digest for reviewed rollback. The package
+must be public for anonymous pulls. No registry credential is needed to pull it.
+
+Set `ANALYTICS_DATABASE_MAX_CONNECTIONS` to the engine database pool ceiling
+(default 12, accepted range 2–100). Small installations can start at 4, then
+measure pool waits and ingestion/export latency. The minimum allows an export
+stream and its metadata operations to make progress. External PostgreSQL source
+connections are separate: configure each source's `budget.max_concurrency` and
+reserve additional database capacity for discovery, administration and upgrades.
+The composed service acceptance suite exercises ingestion, exports and restore
+with a four-connection engine pool.
+
+To use a published image with the deployment example, replace `build: .` with
+`image: ghcr.io/unbought-games/analytics@sha256:<reviewed-digest>`, then run Compose
+without `--build`. Keep database and export-volume backups before upgrades.

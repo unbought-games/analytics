@@ -64,8 +64,10 @@ async fn run() -> ApiResult<()> {
             ApiError::bad_request("Set DATABASE_URL or ANALYTICS_DATABASE_URL_FILE")
         })?,
     };
+    let max_connections =
+        database_max_connections(&env("ANALYTICS_DATABASE_MAX_CONNECTIONS", "12"))?;
     let db = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(12)
+        .max_connections(max_connections)
         .acquire_timeout(std::time::Duration::from_secs(10))
         .connect(&dsn)
         .await
@@ -192,4 +194,38 @@ async fn run() -> ApiResult<()> {
         }
     }
     Ok(())
+}
+
+/// The engine pool excludes connections opened by external source adapters.
+fn database_max_connections(value: &str) -> ApiResult<u32> {
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|n| (2..=100).contains(n))
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                "ANALYTICS_DATABASE_MAX_CONNECTIONS must be an integer between 2 and 100",
+            )
+        })
+}
+
+#[cfg(test)]
+mod pool_configuration_tests {
+    use super::*;
+    #[test]
+    fn validates_operator_pool_budget() {
+        for value in ["2", "4", "12", "100"] {
+            assert_eq!(
+                database_max_connections(value).unwrap(),
+                value.parse::<u32>().unwrap()
+            );
+        }
+        for value in ["", "0", "1", "101", "-1", "4.5", "secret-value"] {
+            let error = database_max_connections(value).unwrap_err();
+            assert_eq!(
+                error.message,
+                "ANALYTICS_DATABASE_MAX_CONNECTIONS must be an integer between 2 and 100"
+            );
+        }
+    }
 }
