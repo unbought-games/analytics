@@ -1,4 +1,4 @@
-.PHONY: build check unit integration acceptance benchmark fixtures secret-check local-up local-down contract
+.PHONY: build check unit integration acceptance benchmark fixtures analysis test-ci secret-check local-up local-down contract
 
 build:
 	cargo build --locked --workspace
@@ -14,6 +14,12 @@ check:
 unit:
 	cargo test --locked --workspace --lib
 	python3 tests/acceptance/run.py --suite fixtures
+
+test-ci:
+	python3 scripts/run_python_tests.py scripts
+
+analysis:
+	python3 tests/acceptance/run.py --suite analysis
 
 fixtures:
 	python3 tests/acceptance/run.py --suite fixtures
