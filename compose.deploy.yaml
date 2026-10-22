@@ -1,0 +1,19 @@
+# Start against an existing PostgreSQL database: docker compose -f compose.deploy.yaml up -d --build
+services:
+  analytics:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      ANALYTICS_PUBLIC_BASE_URL: ${ANALYTICS_PUBLIC_BASE_URL:-http://127.0.0.1:8080}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - analytics_data:/var/lib/analytics
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+volumes:
+  analytics_data:

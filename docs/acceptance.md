@@ -14,7 +14,7 @@ make build check
 make acceptance
 ```
 
-`make acceptance` generates fresh protected credentials and randomly named disposable Compose resources. It executes 22 commands: fixture/client/database/build-boundary checks, the full Rust workspace, the independent review regression explicitly including its default-ignored case, real TypeScript producer recovery, analytical boundaries, real Chromium unit/service checks, composed HTTP/MCP/OIDC/vendor/export/restore tests, the live cross-property journey, independent fresh CLI and release-container installations, contract and package checks, and the native release benchmark. The benchmark has separate 5,000-event normal and 70,000-event burst workloads plus a 100,000-row export and a real-socket lost-acknowledgment recovery probe. Run `make benchmark` separately to reproduce those measurements.
+`make acceptance` generates fresh protected credentials and randomly named disposable Compose resources. It executes 23 commands: fixture/client/database/build-boundary checks, the full Rust workspace, the independent review regression explicitly including its default-ignored case, real TypeScript producer recovery, analytical boundaries, real Chromium unit/service checks, composed HTTP/MCP/OIDC/vendor/export/restore tests, the live cross-property journey, independent fresh CLI and release-container installations, contract and package checks, and the native release benchmark. The benchmark has separate 5,000-event normal and 70,000-event burst workloads plus a 100,000-row export and a real-socket lost-acknowledgment recovery probe. Run `make benchmark` separately to reproduce those measurements.
 
 The runner writes exact commands, exit codes, elapsed times, revision, dirty status and source-tree hashes to ignored `artifacts/acceptance/commands.json`. The benchmark writes `artifacts/benchmarks/service.json`; CI uploads only those two explicitly named files. No absent prerequisite, skipped-only suite, failed command, unresolved transport batch or failed performance gate is counted as acceptance. `acceptance_complete` describes this controlled environment only.
 
@@ -22,7 +22,7 @@ The runner writes exact commands, exit codes, elapsed times, revision, dirty sta
 
 | ID | Executable evidence |
 | --- | --- |
-| A01 Independent setup | `test_container.py` builds the release image, runs migrations with a separate credential, bootstraps with protected handoff, serves under a restricted runtime role and initializes a real remote MCP client. `cli_smoke.py` independently starts from an empty database. |
+| A01 Independent setup | `test_container.py` builds the release image, starts with automatic migrations, bootstraps with protected handoff, serves with the same schema-owning account, and initializes a real remote MCP client. `test_startup.py` covers concurrent empty-database starts, upgrades, restarts and migration failure. `cli_smoke.py` independently starts from an empty database. |
 | A02 Capture | 28 Chromium behaviors plus `test:browser:service` and `browser_journey.mjs` verify initial/SPA/delegated capture once, same-batch tagged landing references, sanitized URL/query/fragment/control data and reset. |
 | A03 Campaign continuity | Three actual origins traverse company → game → identity → game using audience-bound handoffs. Signup selects the actual retained touch; the report joins separately authorized origin visit/touch exports. Rust database suites cover cancel/retry/expiry/invalid audience/untagged/later campaign/login boundaries. |
 | A04 Identity | Real OIDC authorization code/PKCE and signature-checked callback bind a subject to a distinct application account and player. Actual exported mappings join enrollment/action evidence. Rust and analysis suites cover multiple worlds/issuers, logout, unknown/deleted identities and scoped UUID reuse. |
@@ -35,7 +35,7 @@ The runner writes exact commands, exit codes, elapsed times, revision, dirty sta
 | A11 Performance | Committed browser compressed-byte/interaction/volume/queue/heap measurements; unchanged release normal/burst latency gates, explicit refusal/unknown accounting, database reconciliation, sampled RSS and 100,000-row export measurements. Initial failed latency and transport-unknown runs are retained. See `benchmarks/README.md`. |
 | A12 Handoff | Combined OpenAPI generation/check resolves all references and preserves browser wire types; actual npm package inventory allows only 16 intended files. Operations cover protected setup, runtime permissions, source access, privacy/retention, tested engine restore and separate release steps. |
 | A13 External observability | Actual Rust adapters query controlled Prometheus instant/range/empty and Sentry paginated issue/event/detail APIs. Typed downloaded files preserve gaps/special values and release/time correlation; sensitive fields, unauthorized project paths, rate limits and unavailable results are explicitly checked. No vendor mutation is introduced. |
-| A14 Auth and parity | Real human OIDC and unattended agent access share grants. The official `mcp==2.3.0` client checks discovery, handshake, administration, scoped denial, same-session/reconnect revocation and artifact checksums. CLI/database suites prove atomic bootstrap, rotation and recovery. Runtime cannot create roles/databases/schemas, alter tables or modify migration history. Shared admission/deadlines are tested against real slow TCP clients. |
+| A14 Auth and parity | Real human OIDC and unattended agent access share grants. The official `mcp==2.3.0` client checks discovery, handshake, administration, scoped denial, same-session/reconnect revocation and artifact checksums. CLI/database suites prove atomic bootstrap, rotation and recovery. The application account owns its schema for automatic migrations but cannot create cluster roles or databases. Shared admission/deadlines are tested against real slow TCP clients. |
 
 ## Recorded results and revision boundaries
 
@@ -54,3 +54,37 @@ Task commit hashes can differ from public cherry-picks or squash history. Match 
 ## Practical limits
 
 Browser delivery remains best effort. An HTTP overload response itself can be lost; absent acknowledgment is unknown acceptance, requiring stable-ID retry and reconciliation. The benchmark never folds recovery into measured throughput or relabels an unknown as a refusal. Source histories have independent snapshots, and incomplete coverage never becomes a measured zero. RSS sampling may miss shorter peaks and recorded throughput is hardware/workload-specific. Downloaded artifacts and reports inherit deletion/retention obligations; local files do not disappear when remote access is revoked. Deployment and publication remain separately authorized work.
+
+## Automatic startup migration validation — 2026-10-21
+
+The deployment now uses one schema-owning application account. `serve` and
+`bootstrap` apply pending migrations automatically; the separate migration
+container and runtime grant step have been removed. `DATABASE_URL` is supported,
+with protected-file configuration retaining precedence. The standalone example
+is `compose.deploy.yaml`; the operator steps are in `docs/deployment.md`.
+
+Focused validation commands, run from the repository root:
+
+| Command | Outcome |
+| --- | --- |
+| `cargo build --locked -p analytics-server` | Passed |
+| `cargo fmt --all -- --check` | Passed |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | Passed |
+| `python3 scripts/generate-contract.py --check` | Passed; 39 paths, all references resolved |
+| `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_startup.py -v` | 3 passed: concurrent fresh starts, restart/identity persistence, pending upgrades, migration failure rollback and refusal to serve/bootstrap; direct environment connection exercised |
+| `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_service.py -v` | 7 passed: administration, OIDC, official MCP client, exports, controlled vendor sources, schema privileges and restore |
+| `python3 tests/acceptance/stack.py run -- python3 crates/analytics-server/tests/cli_smoke.py` | Passed: bootstrap on empty database without explicit migration, repeat rejection, MCP identity, rotation, revocation and recovery |
+| `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_container.py -v` | Initial container test passed; standalone deployment test added afterward and exercised separately below |
+| `python3 tests/acceptance/stack.py run -- python3 -m unittest discover -s tests/acceptance -p test_container.py -k standalone -v` | Passed: actual deployment Compose file, default UID 65532, automatic migrations, protected bootstrap copy, MCP identity, container recreation and repeated-bootstrap rejection |
+| `python3 tests/acceptance/secret_check.py` | Passed; zero findings |
+| `git diff --check` | Passed |
+
+The tracked-secret check initially flagged the documentation password placeholder;
+it was changed to an explicit `<password>` placeholder and the check passed.
+
+All database runs used disposable PostgreSQL 17.7 and manufactured credentials;
+containers and volumes were removed after testing. External APIs used controlled
+fixtures. The standalone deployment test overrides only the test network and
+loopback port. The complete A01–A14 acceptance suite, browser suite and performance
+benchmarks were not rerun for this startup change. No production deployment,
+production query or package publication was performed.

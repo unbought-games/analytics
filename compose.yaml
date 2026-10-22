@@ -80,20 +80,7 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 512m
     cpus: 2.0
-  migrate:
-    profiles: [engine]
-    image: ${ANALYTICS_TEST_IMAGE:?run stack.py first}
-    user: "${ANALYTICS_UID:-65532}:${ANALYTICS_GID:-65532}"
-    environment:
-      ANALYTICS_DATABASE_URL_FILE: /run/secrets/engine_migration_url
-    secrets: [engine_migration_url]
-    command: [migrate]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
 secrets:
-  engine_migration_url:
-    file: ${ANALYTICS_STACK_DIR:?run stack.py first}/engine_migration_url
   engine_database_url:
     file: ${ANALYTICS_STACK_DIR:?run stack.py first}/engine_database_url
   database_password:

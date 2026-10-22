@@ -57,20 +57,29 @@ async fn main() {
 }
 async fn run() -> ApiResult<()> {
     let cli = Cli::parse();
-    let path = std::env::var_os("ANALYTICS_DATABASE_URL_FILE").ok_or_else(|| {
-        ApiError::bad_request("Set ANALYTICS_DATABASE_URL_FILE to a protected DSN file")
-    })?;
-    let dsn = bootstrap::read_secret(&PathBuf::from(path))
-        .map_err(|_| ApiError::bad_request("Cannot read protected database secret file"))?;
+    let dsn = match std::env::var_os("ANALYTICS_DATABASE_URL_FILE") {
+        Some(path) => bootstrap::read_secret(&PathBuf::from(path))
+            .map_err(|_| ApiError::bad_request("Cannot read protected database secret file"))?,
+        None => std::env::var("DATABASE_URL").map_err(|_| {
+            ApiError::bad_request("Set DATABASE_URL or ANALYTICS_DATABASE_URL_FILE")
+        })?,
+    };
     let db = sqlx::postgres::PgPoolOptions::new()
         .max_connections(12)
         .acquire_timeout(std::time::Duration::from_secs(10))
         .connect(&dsn)
         .await
         .map_err(|_| ApiError::internal())?;
+    // Use the same account for schema changes and normal application access.
+    // SQLx serializes concurrent migrators with a PostgreSQL advisory lock and
+    // verifies applied checksums. Never start serving after a migration failure.
+    MIGRATOR.run(&db).await.map_err(|_| ApiError {
+        status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        code: "migration_failed".into(),
+        message: "Database migration failed; startup aborted".into(),
+    })?;
     match cli.command {
         Command::Migrate => {
-            MIGRATOR.run(&db).await.map_err(|_| ApiError::internal())?;
             println!("Migrations applied");
         }
         Command::Bootstrap {

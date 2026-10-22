@@ -29,13 +29,9 @@ def provision():
         target = directory / name
         target.write_text(secrets.token_hex(32))
         target.chmod(0o600)
-    password = (directory / "database_password").read_text()
     dsn = directory / "engine_database_url"
     runtime_password = (directory / "runtime_password").read_text()
     dsn.write_text(f"postgres://analytics_runtime:{runtime_password}@postgres:5432/analytics")
-    migration_dsn = directory / "engine_migration_url"
-    migration_dsn.write_text(f"postgres://analytics_migration:{password}@postgres:5432/analytics")
-    migration_dsn.chmod(0o600)
     dsn.chmod(0o600)
     (directory / "exports").mkdir(mode=0o700)
     (directory / "secrets").mkdir(mode=0o700)
@@ -47,7 +43,7 @@ def provision():
         # Hex-only generated credential is sent through stdin, never an argument/log.
         sql = f"ALTER ROLE synthetic_reader PASSWORD '{password}';\n"
         compose(state, "exec", "-T", "sources", "psql", "-U", "fixture_migration", "-d", "synthetic", "-v", "ON_ERROR_STOP=1", input=sql, text=True, stdout=subprocess.DEVNULL)
-        sql = f"CREATE ROLE analytics_runtime LOGIN PASSWORD '{runtime_password}'; REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT CONNECT ON DATABASE analytics TO analytics_runtime;"
+        sql = f"CREATE ROLE analytics_runtime LOGIN PASSWORD '{runtime_password}'; REVOKE CREATE ON SCHEMA public FROM PUBLIC; ALTER DATABASE analytics OWNER TO analytics_runtime; GRANT USAGE, CREATE ON SCHEMA public TO analytics_runtime;"
         compose(state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", "analytics", "-v", "ON_ERROR_STOP=1", input=sql, text=True, stdout=subprocess.DEVNULL)
         from cohort_source import install
         install(state)
@@ -71,7 +67,7 @@ def load_state(path):
 
 def shutdown(state):
     compose(state, "--profile", "engine", "down", "--volumes", "--remove-orphans", "--timeout", "10")
-    for name in ("database_password", "source_password", "runtime_password", "engine_database_url", "engine_migration_url", "host_database_url", "host_runtime_url"):
+    for name in ("database_password", "source_password", "runtime_password", "engine_database_url", "host_database_url", "host_runtime_url"):
         (Path(state["directory"]) / name).unlink(missing_ok=True)
 
 
@@ -107,10 +103,6 @@ def environment(state):
         ANALYTICS_EVIDENCE_DIR=str(directory / "evidence"))
 
 
-def grant_runtime(state, database="analytics"):
-    compose(state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", database, "-v", "ON_ERROR_STOP=1", input="GRANT USAGE ON SCHEMA public TO analytics_runtime; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO analytics_runtime; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO analytics_runtime; REVOKE INSERT,UPDATE,DELETE ON _sqlx_migrations FROM analytics_runtime;", text=True, stdout=subprocess.DEVNULL)
-
-
 def start_engine(state, recreate_dependencies=False):
     compose(state, "--profile", "engine", "build", "engine")
     # Compose may recreate a dependency when image/config metadata changes.
@@ -120,14 +112,12 @@ def start_engine(state, recreate_dependencies=False):
         dependency_args.append("--force-recreate")
     compose(state, *dependency_args, "fixtures", "postgres")
     fixture_id=compose(state,"ps","-q","fixtures",capture_output=True,text=True).stdout.strip()
-    compose(state, "--profile", "engine", "run", "--rm", "--no-deps", "migrate")
-    grant_runtime(state)
-    handoff = Path(state["directory"]) / "secrets" / "bootstrap.json"
-    if not handoff.exists():
-        compose(state, "--profile", "engine", "run", "--rm", "--no-deps", "engine", "bootstrap", "--owner", "synthetic-owner", "--agent", "synthetic-agent", "--output", "/run/analytics/secrets/bootstrap.json")
     state["public_base_url"] = "http://" + endpoint(state, "fixtures", 8080)
     (Path(state["directory"]) / "state.json").write_text(json.dumps(state))
     compose(state, "--profile", "engine", "up", "--no-deps", "--detach", "--wait", "--wait-timeout", "90", "engine")
+    handoff = Path(state["directory"]) / "secrets" / "bootstrap.json"
+    if not handoff.exists():
+        compose(state, "--profile", "engine", "exec", "-T", "engine", "analytics-server", "bootstrap", "--owner", "synthetic-owner", "--agent", "synthetic-agent", "--output", "/run/analytics/secrets/bootstrap.json")
     if compose(state,"ps","-q","fixtures",capture_output=True,text=True).stdout.strip()!=fixture_id or "http://"+endpoint(state,"fixtures",8080)!=state["public_base_url"]:
         raise RuntimeError("Engine dependency or advertised host port changed during startup")
     from urllib.request import urlopen

@@ -16,4 +16,4 @@ External authentication uses an operator-configured OIDC/OAuth issuer. The resou
 
 Public browser credentials remain ingestion-only and cannot authenticate the administration layer. Browser origin/proof/policy enforcement belongs to ingestion. MCP validates Origin against the configured public origin and supplies OAuth resource metadata in 401 challenges. All responses disable caching. No auth request or bearer value is logged.
 
-Operational boundaries: migration access is separate from runtime access; deployments must use TLS, a protected secret volume, and database roles described in authentication/operations documentation. No production configuration, vendor account, package publication or deployment is part of this work.
+Operational boundaries: the same schema-owning account applies migrations automatically and serves requests; deployments use TLS and the connection/storage settings described in the deployment guide. No production configuration, vendor account, package publication or deployment is part of this work.

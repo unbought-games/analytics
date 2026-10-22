@@ -11,7 +11,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from client import Client
 from fixtures.server import FixtureServer
-from stack import ROOT, load_state, grant_runtime, compose
+from stack import ROOT, load_state, compose
 
 
 class Service:
@@ -35,6 +35,7 @@ class Service:
         self.oidc_thread = threading.Thread(target=self.oidc.serve_forever, daemon=True)
         self.oidc_thread.start()
         self.env = dict(os.environ, ANALYTICS_PUBLIC_BASE_URL=self.url, ANALYTICS_SECRET_DIRECTORY=str(self.secrets), ANALYTICS_EXPORT_DIRECTORY=str(self.exports), ANALYTICS_OIDC_ISSUER=self.oidc.issuer)
+        self.env["ANALYTICS_DATABASE_URL_FILE"] = self.env["ANALYTICS_RUNTIME_DATABASE_URL_FILE"]
         self.log = self.directory / "service.log"
         self.log_handle = self.log.open("xb")
         self.log.chmod(0o600)
@@ -43,7 +44,7 @@ class Service:
         if database != "analytics":
             if not re.fullmatch(r"[a-z_][a-z0-9_]{0,50}", database):
                 raise ValueError("invalid synthetic database name")
-            compose(self.state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", "postgres", "-v", "ON_ERROR_STOP=1", input="CREATE DATABASE " + database + ";", text=True, capture_output=True)
+            compose(self.state, "exec", "-T", "postgres", "psql", "-X", "-U", "analytics_migration", "-d", "postgres", "-v", "ON_ERROR_STOP=1", input="CREATE DATABASE " + database + " OWNER analytics_runtime;", text=True, capture_output=True)
             for key in ("ANALYTICS_DATABASE_URL_FILE", "ANALYTICS_RUNTIME_DATABASE_URL_FILE"):
                 target = self.directory / key.lower()
                 target.write_text(Path(self.env[key]).read_text().rsplit("/",1)[0] + "/" + database)
@@ -55,9 +56,6 @@ class Service:
         return subprocess.run([str(self.binary), *args], env=self.env, cwd=ROOT, check=check, capture_output=True)
 
     def migrate_bootstrap(self):
-        self.command("migrate")
-        grant_runtime(self.state, self.database)
-        self.env["ANALYTICS_DATABASE_URL_FILE"] = self.env["ANALYTICS_RUNTIME_DATABASE_URL_FILE"]
         handoff = self.directory / "bootstrap.json"
         self.command("bootstrap", "--owner", "synthetic-owner", "--agent", "synthetic-agent", "--output", str(handoff), "--expires-days", "30")
         self.handoff = json.loads(handoff.read_text())
