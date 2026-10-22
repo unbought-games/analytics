@@ -53,6 +53,18 @@ class Example(unittest.TestCase):
         result = self.run_fixture({"test_example.py": "import nonexistent_synthetic_dependency\n"})
         self.assertNotEqual(result.returncode, 0)
 
+    def test_class_setup_skip_without_running_tests_fails(self):
+        result = self.run_fixture({"test_example.py": """import unittest
+class Example(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        raise unittest.SkipTest('synthetic setup unavailable')
+    def test_example(self):
+        pass
+"""})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("All tests skipped", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
