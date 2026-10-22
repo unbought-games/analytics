@@ -1,5 +1,9 @@
 # Operations and local validation
 
+For installation and everyday production operation, start with the
+[self-hosting guide](deployment.md). This page describes the disposable validation
+stack and backup/restore responsibilities.
+
 ## Disposable setup
 
 Run `make fixtures` for independent fixture/client tests. Run `make integration` for disposable engine and external-source PostgreSQL databases, controlled HTTP fixtures and Rust tests. Each invocation has a random `analytics-test-` Compose project, generated database credentials, dynamically assigned loopback ports, explicit CPU/memory limits and no connection to another installation. Test data lives in per-project named volumes. `stack.py run` supplies `DATABASE_URL`, `TEST_DATABASE_URL`, `TEST_SOURCE_DATABASE_URL`, `TEST_FIXTURE_URL` and `ANALYTICS_STACK_STATE` in its child environment; it does not print them.
@@ -43,6 +47,34 @@ Normal rotation/revocation uses authorized credential administration. If adminis
 A production installation uses one database account with schema ownership, TLS at the public endpoint, protected operator-managed source secrets, persisted export storage, and explicit profile/retention settings. Deployment is outside this implementation task. No image or package is published by these commands.
 
 ## Backup and restore
+
+Use your database provider's backup tooling or `pg_dump`/`pg_restore` with
+credentials loaded from protected files or your secret manager. Keep passwords
+out of command arguments. Store backups outside the service host with restricted
+access; they contain event data and authorization state, and the data volume can
+contain the initial raw credential handoff.
+
+For a straightforward single-instance backup:
+
+1. Pause incoming producers or let their durable outboxes retain pending delivery,
+   stop the analytics service with `docker compose -f compose.deploy.yaml stop`,
+   and prevent other service instances/maintenance jobs from writing. Browser
+   observations during the interruption remain best effort and can be lost.
+2. Back up the dedicated PostgreSQL database and the complete `analytics_data`
+   volume while the service remains stopped. Record a common cutoff, the deployed
+   revision, schema version and volume/project identity. Back up deployment
+   configuration and connector secrets through your protected secret backup process.
+3. Restart with `docker compose -f compose.deploy.yaml up -d --wait` (including any
+   local overrides), verify readiness and authenticated access, and resume producers.
+
+To rehearse recovery, provision a separate empty database and volume, restore the
+matched database/files, preserve file ownership for UID/GID 65532, and initially
+use the backed-up service revision. Configure an isolated test URL and block access
+to live external sources and producers. Restoring credentials also restores their
+recorded authority: protect the drill as an installation containing sensitive data.
+Check the items below before reconnecting a recovered installation. Account for
+credential revocations and privacy deletions made after the backup cutoff; an old
+backup must not silently reinstate revoked access or deleted data.
 
 The current `test_source_backup_restore_preserves_values` test takes an actual custom-format `pg_dump`, restores it into a separate disposable database with `pg_restore --exit-on-error`, compares lossless rows, and checks restricted-reader access afterward. It demonstrates the fixture database restore only; it is not evidence that engine migrations, principals, revocations or export files have been recovered.
 
