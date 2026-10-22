@@ -44,6 +44,7 @@ def main():
         required = ["crates/analytics-server/src/main.rs", "packages/browser/package.json", "examples/analysis/analyze", "tests/acceptance/test_journey.py"]
         missing.extend(path for path in required if not (ROOT / path).is_file())
         if not missing:
+            commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_startup.py", "-v"])
             commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_service.py", "-v"])
             commands.append([python, "-m", "unittest", "discover", "-s", "tests/acceptance", "-p", "test_journey.py", "-v"])
             commands.append([python, "tests/acceptance/stack.py", "run", "--", python, "crates/analytics-server/tests/cli_smoke.py"])

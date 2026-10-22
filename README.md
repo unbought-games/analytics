@@ -4,6 +4,13 @@ A headless analytics service with PostgreSQL storage, a small framework-neutral 
 
 The product requirements and implementation plan are in [the specification](docs/SPECIFICATION.md) and [the plan](docs/plans/2026-10-21-analytics-engine.md). The controlled local installation and browser-to-MCP analysis pipeline passed a clean 22-command acceptance run, including measured performance gates. The subsequent same-origin configuration fix passed focused same-origin and cross-origin checks. [Acceptance evidence](docs/acceptance.md) records the tested source boundaries and limitations; [public CI runs and artifacts](https://github.com/unbought-games/analytics/actions/workflows/ci.yml) provide the result for each public revision. These checks do not deploy or publish anything.
 
+## Deploy
+
+Use the [Docker deployment guide](docs/deployment.md): set `DATABASE_URL`, start
+with `docker compose -f compose.deploy.yaml up -d --build --wait`, then run the
+one-time admin bootstrap. The server applies migrations automatically using the
+same database account. No separate migration service or credential is required.
+
 ## Development
 
 Requirements: Docker with Compose v2, Rust 1.99, Node 24, Python 3.9+, OpenSSL and uv 0.9.5 (the locked official MCP test uses Python 3.13). The fixture image supplies its own Python/OpenSSL. Source builds use the committed Cargo/npm lockfiles.

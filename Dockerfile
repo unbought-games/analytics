@@ -8,7 +8,8 @@ RUN cargo build --locked --release --package analytics-server
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /var/lib/analytics/exports /run/analytics/secrets \
+    && mkdir -p /var/lib/analytics/exports /var/lib/analytics/handoff /run/analytics/secrets \
+    && chmod 700 /var/lib/analytics/handoff \
     && chown -R 65532:65532 /var/lib/analytics /run/analytics
 COPY --from=build /src/target/release/analytics-server /usr/local/bin/analytics-server
 USER 65532:65532

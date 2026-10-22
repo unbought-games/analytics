@@ -50,7 +50,7 @@ saved queries, export metadata and audit records. PostgreSQL is a settled choice
 not a datastore selection task for the implementer. Large JSONL exports may live
 in configured file/object storage with their metadata in PostgreSQL.
 
-Use a dedicated logical database and least-privilege roles. Keep analytics writes separate from external application databases. External connectors require restricted read-only credentials and bounded workloads. Provisioning production databases is a deployment task.
+Use a dedicated logical database and one schema-owning application account for automatic startup migrations and normal service access. Cluster superuser and role/database creation privileges are unnecessary. Keep analytics writes separate from external application databases. External connectors require restricted read-only credentials and bounded workloads. Provisioning production databases is a deployment task.
 
 Framework, exact repository layout, license, final package names, MCP library, and code generator remain implementation choices. Choose maintained dependencies and record material choices. Select an OSI-approved license before public release. Do not make ordinary engineering choices into repeated approval questions.
 
@@ -282,9 +282,9 @@ SQL, manual password/token hashes, or editing authentication tables.
 
 The installation guide must cover this complete sequence:
 
-1. Configure the analytics database connection and run versioned migrations using
-   the documented deployment credentials. Separate migration/provisioning access
-   from runtime permissions; no database superuser credential enters MCP.
+1. Configure the analytics database connection. Startup applies versioned migrations
+   automatically using the same schema-owning account as normal operation. Database
+   provisioning remains external; no database superuser credential enters MCP.
 2. Run bootstrap locally or in the deployment container using authorized host
    access. Create the named initial owner principal and a separately identifiable
    first agent/service principal, granting the agent the selected owner/admin

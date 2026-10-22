@@ -29,7 +29,6 @@ def main():
         with os.fdopen(fd, "w") as output:
             output.write(os.environ["TEST_DATABASE_URL"])
         env = dict(os.environ, ANALYTICS_DATABASE_URL_FILE=str(dsn_file))
-        run(str(binary), "migrate", env=env)
         handoff = directory / "initial.json"
         run(str(binary), "bootstrap", "--owner", "Synthetic Owner", "--agent", "Synthetic Agent", "--output", str(handoff), env=env)
         initial = json.loads(handoff.read_text())
@@ -75,7 +74,7 @@ def main():
         finally:
             server.terminate()
             server.wait(timeout=10)
-    print("PASS: migrate, bootstrap, repeat rejection, remote MCP initialize/identity, protected rotation, revocation and recovery")
+    print("PASS: bootstrap with automatic migrations, repeat rejection, remote MCP initialize/identity, protected rotation, revocation and recovery")
 
 
 if __name__ == "__main__":

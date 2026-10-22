@@ -1,19 +1,24 @@
 # Headless installation and access
 
-Build `cargo build --locked -p analytics-server`. Binary: `target/debug/analytics-server`. The PostgreSQL DSN is read only from `ANALYTICS_DATABASE_URL_FILE`, a regular file with mode 0600 or stricter. Keep it in ignored `secrets/` or an external secret mount. It is not accepted as a CLI argument. Migration and runtime database accounts should be distinct: migration account owns schema/DDL; runtime receives schema USAGE, table SELECT/INSERT/UPDATE/DELETE and sequence USAGE, with no CREATEDB/CREATEROLE, ownership, superuser or access to other databases. Database provisioning is a deployment responsibility; no principal/authentication SQL is required.
+For Docker, follow the [deployment guide](deployment.md). The server applies
+migrations automatically using the same database account as normal operation.
+Provide `DATABASE_URL`, or set `ANALYTICS_DATABASE_URL_FILE` to a protected regular
+file (mode 0600 or stricter). The file takes precedence when both are set. Use a
+dedicated database owned by this account; no superuser or cluster role-management
+permissions are needed. Database provisioning remains a deployment responsibility.
 
-Create a mode-0700 handoff directory. Run commands with the selected secret file already provisioned by the deployment secret mechanism:
+For a native build, run `cargo build --locked -p analytics-server`. With the
+connection configured, start and bootstrap as follows (bootstrap can run before
+or after the server; both apply pending migrations):
 
 ```sh
-export ANALYTICS_DATABASE_URL_FILE="$PWD/secrets/migration-dsn"
-./target/debug/analytics-server migrate
-mkdir -m 700 -p local/handoff
-./target/debug/analytics-server bootstrap --owner 'Synthetic Owner' --agent 'Synthetic Agent' --output local/handoff/initial.json --expires-days 30
-export ANALYTICS_DATABASE_URL_FILE="$PWD/secrets/runtime-dsn"
 export ANALYTICS_PUBLIC_BASE_URL=http://127.0.0.1:8080
 export ANALYTICS_SECRET_DIRECTORY="$PWD/secrets"
 export ANALYTICS_EXPORT_DIRECTORY="$PWD/exports"
 ./target/debug/analytics-server serve --bind 127.0.0.1:8080
+# In another shell with the same database configuration:
+mkdir -m 700 -p local/handoff
+./target/debug/analytics-server bootstrap --owner 'Owner' --agent 'Admin Agent' --output local/handoff/initial.json --expires-days 30
 ```
 
 Bootstrap creates separate human owner and agent principals with owner authority. The initial agent's credential is delivered once as `{owner_id, agent_id, credential:{id, token, expires_at}}`, atomically with initialization. Parent directory must preexist with mode 0700; the output must not exist and is created 0600. Files are synchronized before committing. Concurrent/repeated bootstrap returns `already_initialized` without extra owners, replacement credentials or secret disclosure. If a crash leaves an inaccessible handoff, local recovery is explicit; rerunning setup does not reveal secrets.
