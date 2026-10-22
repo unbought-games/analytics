@@ -6,10 +6,18 @@ The product requirements and implementation plan are in [the specification](docs
 
 ## Deploy
 
-Use the [Docker deployment guide](docs/deployment.md): set `DATABASE_URL`, start
-with `docker compose -f compose.deploy.yaml up -d --build --wait`, then run the
-one-time admin bootstrap. The server applies migrations automatically using the
-same database account. No separate migration service or credential is required.
+The production layout is one Rust container, your PostgreSQL database, an HTTPS
+reverse proxy, and a persistent volume for export files. Administration is through
+MCP/API; there is no web dashboard. No provider-specific services are required.
+
+Follow the [self-hosting guide](docs/deployment.md) to configure the database,
+start the service, create the first admin credential, connect an MCP client, and
+verify collection and exports. It also covers optional OIDC/source connections,
+scheduled retention cleanup, backups, upgrades and recovery. Migrations run
+automatically using the service's schema-owning database account.
+
+Use `compose.deploy.yaml` for deployment. The default `compose.yaml` is a disposable
+test stack. Local acceptance results are not evidence of a live production install.
 
 ## Development
 
