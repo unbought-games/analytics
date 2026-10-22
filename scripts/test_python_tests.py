@@ -65,6 +65,20 @@ class Example(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("All tests skipped", result.stderr)
 
+    def test_class_skip_does_not_hide_other_successful_coverage(self):
+        result = self.run_fixture({"test_example.py": """import unittest
+class Unavailable(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        raise unittest.SkipTest('synthetic setup unavailable')
+    def test_example(self):
+        pass
+class Available(unittest.TestCase):
+    def test_example(self):
+        self.assertEqual(2 + 2, 4)
+"""})
+        self.assertEqual(result.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

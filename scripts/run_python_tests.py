@@ -15,7 +15,10 @@ def main():
         print("No tests discovered; refusing an empty successful suite.", file=sys.stderr)
         return 1
     result = unittest.TextTestRunner(verbosity=2).run(suite)
-    if result.testsRun <= len(result.skipped):
+    # A setUpClass/module skip adds a synthetic holder to skipped but never
+    # increments testsRun. Only subtract skips of individual test cases.
+    skipped_cases = sum(isinstance(test, unittest.TestCase) for test, _ in result.skipped)
+    if result.testsRun <= skipped_cases:
         print("All tests skipped; no executable coverage ran.", file=sys.stderr)
         return 1
     return 0 if result.wasSuccessful() else 1
