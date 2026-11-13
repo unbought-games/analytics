@@ -23,15 +23,15 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
   const operations = new Set<AbortController>();
   const getCoverage = (): Coverage => ({...coverage, dropped: {...coverage.dropped}});
   const referrer = sanitizeURL(document.referrer, routes, location.href);
-  const page = () => sanitizeURL(location.href, routes, location.href)!;
   const emit = (name: string, category: Observation['category'], properties: Properties = {}, active = false, campaign?: Observation['campaign'], sourceURL = location.href, eventId?: string) => {
     if (stopped || !state.enabled) return false;
     if (active && document.visibilityState === 'visible') state.activity();
     state.expire();
     coverage.produced++;
+    const context = pageContext(sourceURL, routes, location.href);
     const event: Observation = {
       id: eventId ?? newId(), name, category, occurredAt: new Date().toISOString(), properties,
-      page: sanitizeURL(sourceURL, routes, location.href)!, route: pageContext(sourceURL, routes, location.href)?.route ?? '', referrer, profile: state.profile, policyVersion: options.policyVersion,
+      page: context?.page ?? null, route: context?.route ?? null, referrer, profile: state.profile, policyVersion: options.policyVersion,
       coverage: getCoverage(),
       ...(state.visitId ? {visitId: state.visitId} : {}),
       ...(state.visitorId ? {visitorId: state.visitorId} : {}),
@@ -49,7 +49,8 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
     if (!state.enabled) return;
     if (document.visibilityState === 'visible') state.activity();
     const campaign = campaignFrom(sourceURL, options.experimentKey ?? 'experiment') ?? (landing ? sanitizeCampaign(options.landingCampaign) : undefined);
-    const touch = campaign && (campaign.utm_campaign || campaign.utm_source || campaign.experiment) ? state.touch(campaign, sanitizeURL(sourceURL, routes, location.href)!, referrer) : undefined;
+    const landingURL = sanitizeURL(sourceURL, routes, location.href);
+    const touch = landingURL && campaign && (campaign.utm_campaign || campaign.utm_source || campaign.experiment) ? state.touch(campaign, landingURL, referrer) : undefined;
     emit('page_view', 'navigation', {}, false, campaign, sourceURL, touch?.id);
   };
   const listen = (target: EventTarget, name: string, handler: (event: Event) => void) => {

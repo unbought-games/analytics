@@ -35,6 +35,7 @@ export function sanitizeCampaign(input: Campaign | undefined): Campaign | undefi
 /** Query strings and fragments are excluded; route labels retain parameter names. */
 export function pageContext(raw: string, routes: readonly string[], base: string): {page: string; route: string} | null {
   try {
+    if (!raw) return null;
     const url = new URL(raw, base);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
     const actual = url.pathname.split('/');

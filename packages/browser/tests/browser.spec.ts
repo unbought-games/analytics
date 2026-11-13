@@ -389,3 +389,24 @@ test('server-owned document capture suppresses only the initial view, retaining 
   expect(views).toHaveLength(1);
   expect(views[0].context.route).toBe(defaults.endpoint + '/a');
 });
+
+
+test('direct landings retain a missing referrer instead of inventing a self-referral', async ({page, request}) => {
+  expect(await page.evaluate(() => document.referrer)).toBe('');
+  await init(page); await flush(page);
+  expect((await events(request))[0].context.referrer).toBeNull();
+});
+
+test('unrepresentable URLs omit URL context without dropping page and interaction observations', async ({page, request}) => {
+  await page.evaluate(() => history.replaceState({}, '', '/' + 'x'.repeat(2100)));
+  await init(page);
+  await page.locator('#button').click();
+  await page.evaluate(() => (window as any).client.track('experiment_result', {variant: 'a'}));
+  await flush(page);
+  const sent = await events(request);
+  expect(sent.map((event: any) => event.name)).toEqual(['page_view', 'control_activate', 'experiment_result']);
+  for (const event of sent) {
+    expect(event.context.page).toBeNull();
+    expect(event.context.route).toBeNull();
+  }
+});

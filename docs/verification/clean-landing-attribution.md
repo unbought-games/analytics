@@ -20,3 +20,10 @@ there was no production access, deployment or registry publication.
 
 The application producers must deploy after this additive collector contract.
 See ../server-attribution.md for the source-time and route field semantics.
+
+Review follow-up: missing browser referrers now stay null instead of resolving to
+the current page. Unrepresentable URLs leave page/route null while preserving
+navigation and interaction observations. Two focused browser regressions passed;
+no assertion was weakened. A temporary variable-name collision was caught by the
+build before test execution and corrected. The collector accepts nullable context
+fields by its existing wire contract.

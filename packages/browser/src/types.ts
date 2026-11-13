@@ -51,8 +51,8 @@ export interface Observation {
   occurredAt: string;
   category: 'navigation' | 'interaction' | 'form' | 'lifecycle' | 'custom';
   properties: Properties;
-  page: string;
-  route: string;
+  page: string | null;
+  route: string | null;
   referrer: string | null;
   profile: Profile;
   policyVersion: number;
