@@ -72,7 +72,7 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
     if (safeName(control)) props.control = control;
     if (element instanceof HTMLAnchorElement) {
       const destination = sanitizeURL(element.href, routes, location.href);
-      if (destination) props.destination = destination;
+      if (destination && destination.length <= 512) props.destination = destination;
     }
     return props;
   };

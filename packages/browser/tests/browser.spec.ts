@@ -401,10 +401,13 @@ test('unrepresentable URLs omit URL context without dropping page and interactio
   await page.evaluate(() => history.replaceState({}, '', '/' + 'x'.repeat(2100)));
   await init(page);
   await page.locator('#button').click();
+  await page.evaluate(() => {const link = document.querySelector('#link') as HTMLAnchorElement; link.href = '/' + 'y'.repeat(1000); link.addEventListener('click', event => event.preventDefault());});
+  await page.locator('#link').click();
   await page.evaluate(() => (window as any).client.track('experiment_result', {variant: 'a'}));
   await flush(page);
   const sent = await events(request);
-  expect(sent.map((event: any) => event.name)).toEqual(['page_view', 'control_activate', 'experiment_result']);
+  expect(sent.map((event: any) => event.name)).toEqual(['page_view', 'control_activate', 'control_activate', 'experiment_result']);
+  expect(sent[2].properties.destination).toBeUndefined();
   for (const event of sent) {
     expect(event.context.page).toBeNull();
     expect(event.context.route).toBeNull();
