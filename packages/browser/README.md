@@ -20,7 +20,7 @@ Configure the property's allowed origin, collection policy and the schemas retur
 
 `init` is idempotent per endpoint/property across repeated script loads. `track`, `identify`, `reset`, `setCollectionChoice`, `flush`, `shutdown`, `getJourneyContext`, `createHandoff`, `redeemHandoff` and `getCoverage` are documented in `docs/browser.md` in the source repository. `ready` exposes initialization failures.
 
-URLs contain only approved static routes; dynamic template segments become `:redacted`. Form values, arbitrary text, query strings and fragments are never collected. Use static `data-analytics="control_name"` on controls and `data-analytics-ignore` on excluded subtrees. Set `choice.detailedProperties` explicitly to permit custom schema fields.
+Routes group pages under their declared names, such as `/articles/:slug`, in `context.route`. `context.page` retains the concrete path for drill-down; credential parameters named `code`, `token`, `secret` or `password` retain only the parameter name. Unmatched paths are recorded as-is. Form values, arbitrary text, query strings and fragments are never collected. Use static `data-analytics="control_name"` on controls and `data-analytics-ignore` on excluded subtrees. Set `choice.detailedProperties` explicitly to permit custom schema fields.
 
 Identity and cross-property journeys require configured, authenticated application/server integrations. Never pass an arbitrary account ID to `identify`; it accepts an expiring, journey-bound proof issued by the trusted server flow. Call `reset` before account changes and before obtaining a fresh proof. Opt-out clears queued data and local identities. Server-side deletion remains an authenticated operation.
 

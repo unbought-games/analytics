@@ -189,6 +189,9 @@ fn event(p: &PropertyDefinition, name: &str) -> EventEnvelope {
             environment: "test".into(),
             release: None,
             page: Some("https://site.example/play".into()),
+            route: None,
+            authentication_method: None,
+            source_occurred_at: None,
             referrer: None,
             control: None,
             correlation_id: None,
@@ -372,6 +375,13 @@ async fn policy_profiles_authority_origin_and_prohibited_properties() {
         assert_eq!(
             browser(&s, &t, vec![e]).await["results"][0]["status"],
             "rejected"
+        );
+        let mut source_claim = event(&p, "page_view");
+        source_claim.context.source_occurred_at = Some(source_claim.occurred_at);
+        source_claim.campaign = Some(campaign("forged-time"));
+        assert_eq!(
+            browser(&s, &t, vec![source_claim]).await["results"][0]["code"],
+            "invalid_source_time"
         );
         let mut e = event(&p, "page_view");
         e.context.page = Some("https://site.example/?secret=x".into());
@@ -1662,4 +1672,63 @@ async fn same_origin_config_post_uses_query_token_and_origin_without_writes() {
         );
     }
     server.abort();
+}
+
+#[tokio::test]
+async fn server_only_signup_carries_source_route_and_authentication_method() {
+    let s = state().await;
+    let (property, _) = configure(&s, CollectionProfile::Identified).await;
+    let mut signup = event(&property, "signup");
+    signup.subject = Some(subject());
+    signup.campaign = Some(Campaign {
+        utm_source: Some("invitation".into()),
+        utm_medium: Some("referral".into()),
+        utm_campaign: None,
+        utm_term: None,
+        utm_content: None,
+        experiment_id: None,
+    });
+    signup.context.page = Some("https://site.example/invite/:code".into());
+    signup.context.route = signup.context.page.clone();
+    signup.context.authentication_method = Some("password".into());
+    signup.context.source_occurred_at = Some(signup.occurred_at - Duration::minutes(5));
+    // A redirected auth page may arrive first at the collector. Its referrer
+    // must not displace the original carried source during outage recovery.
+    let mut page = event(&property, "page_view");
+    page.producer = Producer::Server;
+    page.clock = "server".into();
+    page.occurred_at = signup.occurred_at - Duration::minutes(1);
+    page.campaign = Some(self::campaign("intermediate-auth-page"));
+    accepted(&s, page).await;
+    accepted(&s, signup.clone()).await;
+    let row = sqlx::query("SELECT campaign,first_touch_id,last_touch_id FROM ingest_acquisitions WHERE property_id=$1").bind(property.id).fetch_one(&s.db).await.unwrap();
+    let campaign: Value = row.get("campaign");
+    assert_eq!(campaign["utm_source"], "invitation");
+    assert_ne!(
+        row.get::<Uuid, _>("first_touch_id"),
+        row.get::<Uuid, _>("last_touch_id")
+    );
+    let stored: Value = sqlx::query_scalar("SELECT payload FROM ingest_events WHERE event_id=$1")
+        .bind(signup.event_id)
+        .fetch_one(&s.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        stored["context"]["route"],
+        "https://site.example/invite/:code"
+    );
+    assert_eq!(stored["context"]["authentication_method"], "password");
+    // A later campaign on an existing identity is not a new acquisition.
+    let mut later = signup;
+    later.event_id = Uuid::new_v4();
+    later.occurred_at += Duration::seconds(1);
+    later.campaign = Some(self::campaign("later"));
+    accepted(&s, later).await;
+    let retained: Value =
+        sqlx::query_scalar("SELECT campaign FROM ingest_acquisitions WHERE property_id=$1")
+            .bind(property.id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(retained, campaign);
 }

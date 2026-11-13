@@ -52,6 +52,7 @@ export interface Observation {
   category: 'navigation' | 'interaction' | 'form' | 'lifecycle' | 'custom';
   properties: Properties;
   page: string;
+  route: string;
   referrer: string | null;
   profile: Profile;
   policyVersion: number;
@@ -81,7 +82,7 @@ export interface Options {
   profile?: Profile;
   policyVersion: number;
   choice?: CollectionChoice;
-  /** Exact static paths or templates such as /articles/:slug. All parameters are redacted. */
+  /** Exact static paths or templates such as /articles/:slug. Parameters keep their names in context.route; code/token/secret/password values are also removed from context.page. */
   routes?: readonly string[];
   /** Origin allowlist for outgoing handoffs; only configured HTTPS audiences are eligible. */
   handoffOrigins?: Record<string, string>;
@@ -93,6 +94,8 @@ export interface Options {
   landingCampaign?: Campaign;
   experimentKey?: string;
   schemas?: Record<string, Record<string, Field>>;
+  /** Disable when the application server already records document requests. SPA navigation is still captured. */
+  initialPageView?: boolean;
   captureVisibility?: boolean;
   respectPreferenceSignals?: boolean;
   sessionTimeoutMs?: number;

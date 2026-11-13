@@ -36,7 +36,7 @@ pub enum EventCategory {
 dto! {
  pub struct NamespacedId { pub namespace:String, pub id:String }
  pub struct Campaign { pub utm_source:Option<String>,pub utm_medium:Option<String>,pub utm_campaign:Option<String>,pub utm_term:Option<String>,pub utm_content:Option<String>,pub experiment_id:Option<String> }
- pub struct EventContext { pub environment:String,pub release:Option<String>,pub page:Option<String>,pub referrer:Option<String>,pub control:Option<String>,pub correlation_id:Option<String> }
+ pub struct EventContext { pub environment:String,pub release:Option<String>,pub page:Option<String>,pub route:Option<String>,pub authentication_method:Option<String>,pub source_occurred_at:Option<DateTime<Utc>>,pub referrer:Option<String>,pub control:Option<String>,pub correlation_id:Option<String> }
  pub struct CollectionContext { pub profile:CollectionProfile,pub policy_version:i32,pub consent:bool,pub sample_rate:f64,pub dropped_events:u64 }
  pub struct EventEnvelope { pub event_id:Uuid,pub property_id:Uuid,pub name:String,pub schema_version:i32,pub producer:Producer,pub category:EventCategory,pub occurred_at:DateTime<Utc>,pub clock:String,pub logical_time:Option<String>,pub visit_id:Option<String>,pub visitor_id:Option<String>,pub subject:Option<NamespacedId>,pub context:EventContext,pub campaign:Option<Campaign>,pub touch_id:Option<Uuid>,pub attribution_rule:Option<String>,pub collection:CollectionContext,pub properties:BTreeMap<String,Value> }
  pub struct IngestBatch { pub events:Vec<EventEnvelope> }

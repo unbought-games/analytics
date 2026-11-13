@@ -110,13 +110,20 @@ value is copied. Fallbacks use element category and sanitized destination. Exclu
 any subtree with `data-analytics-ignore`; contenteditable subtrees are excluded.
 No key/input listeners, arbitrary error messages or validation messages are read.
 
-`routes` is an explicit allowlist. A template `/articles/:slug` yields
-`/articles/:redacted`. An unknown path becomes `/[redacted]`. URLs retain origin
-and this approved route only; credentials, every query string and all fragments
-are removed. Referrers keep only origin and a redacted path. Do not list personal
-static routes or use personal data in semantic attributes. HTTP/HTTPS links are
-eligible; other schemes are omitted. The collector requires HTTPS, except for
-loopback development.
+`routes` defines aggregation patterns, not an inclusion allowlist. A template
+`/articles/:slug` is recorded in `context.route`; `context.page` retains the
+concrete article path. Unmatched paths retain their actual path in both fields.
+Parameters named `code`, `token`, `secret` or `password` are represented by their
+names in both fields, including referrers. For example an invitation records
+`/invite/:code`, never its credential. Prefer router-derived patterns to a second
+hand-maintained page inventory. Specific static routes take precedence over
+otherwise matching dynamic templates. URLs exclude credentials, query strings
+and fragments. HTTP/HTTPS links are eligible; other schemes are omitted.
+
+Set `initialPageView: false` when application middleware already captures document
+requests. SPA navigation still produces browser observations; it does not issue a
+new document request to the application server. Server and browser observations
+remain distinguishable by `producer`.
 
 Campaign capture separately parses the five standard UTM keys and
 `experimentKey` (default `experiment`). Values are bounded to 128 characters,

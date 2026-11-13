@@ -53,7 +53,7 @@ export class HttpAdapter implements ServiceAdapter {
         event_id: event.id, property_id: this.options.propertyId, name: event.name, schema_version: 1,
         producer: 'browser', category: event.category === 'lifecycle' ? 'visibility' : event.category,
         occurred_at: event.occurredAt, clock: 'client',
-        context: {environment: this.options.environment ?? 'default', page: event.page, referrer: event.referrer,
+        context: {environment: this.options.environment ?? 'default', page: event.page, route: event.route, referrer: event.referrer,
           ...(typeof control === 'string' ? {control} : {}), ...(this.options.release ? {release: this.options.release} : {})},
         collection: {profile: event.profile, policy_version: event.policyVersion, consent: true, sample_rate: 1,
           dropped_events: Math.max(0, Object.values(event.coverage.dropped).reduce((sum, count) => sum + count, 0) - this.reportedDrops)},

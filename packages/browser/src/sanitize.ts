@@ -32,22 +32,28 @@ export function sanitizeCampaign(input: Campaign | undefined): Campaign | undefi
   }
   return Object.keys(result).length ? result : undefined;
 }
-export function sanitizeURL(raw: string, routes: readonly string[], base: string): string | null {
+/** Query strings and fragments are excluded; route labels retain parameter names. */
+export function pageContext(raw: string, routes: readonly string[], base: string): {page: string; route: string} | null {
   try {
     const url = new URL(raw, base);
-    if (!['http:', 'https:'].includes(url.protocol)) return null;
-    let path = '/[redacted]';
-    for (const route of routes) {
-      const parts = route.split('/');
-      const actual = url.pathname.split('/');
-      if (parts.length !== actual.length) continue;
-      if (parts.every((part, index) => part.startsWith(':') ? Boolean(actual[index]) : part === actual[index])) {
-        path = parts.map(part => part.startsWith(':') ? ':redacted' : part).join('/');
-        break;
-      }
-    }
-    return `${url.origin}${path}`;
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    const actual = url.pathname.split('/');
+    const compared = actual.length > 2 && actual.at(-1) === '' ? actual.slice(0, -1) : actual;
+    // Specific static routes must win over equally shaped dynamic routes.
+    const matches = routes.filter(route => {
+      const parts = (route.replace(/\/$/, '') || '/').split('/');
+      return parts.length === compared.length && parts.every((part, index) => part.startsWith(':') ? Boolean(actual[index]) : part === actual[index]);
+    }).sort((a, b) => a.split(':').length - b.split(':').length);
+    const route = matches[0] ?? url.pathname;
+    const template = route.split('/');
+    // Keep ordinary entity paths for drill-down, but never persist credentials.
+    const path = actual.map((part, index) => /^:(?:code|token|secret|password)$/i.test(template[index] ?? '') ? template[index] : part).join('/');
+    const result = {page: `${url.origin}${path}`, route: `${url.origin}${route}`};
+    return result.page.length <= 2048 && result.route.length <= 2048 ? result : null;
   } catch { return null; }
+}
+export function sanitizeURL(raw: string, routes: readonly string[], base: string): string | null {
+  return pageContext(raw, routes, base)?.page ?? null;
 }
 export function propertiesFrom(input: Properties, fields: Record<string, Field>): Properties {
   const result: Properties = {};

@@ -1,7 +1,7 @@
 import {test, expect, type Page, type APIRequestContext} from '@playwright/test';
 const propertyId = '11111111-1111-4111-8111-111111111111';
 const audienceId = '22222222-2222-4222-8222-222222222222';
-const defaults = {endpoint: 'http://127.0.0.1:41739', propertyId, publicToken: 'synthetic-public-token', profile: 'identified', policyVersion: 1, choice: {enabled: true, detailedProperties: true, persistentAttribution: true, crossProperty: true}, routes: ['/fixture', '/', '/next', '/a', '/b', '/private/:id'], handoffOrigins: {'https://destination.example': audienceId}, queue: {flushIntervalMs: 60000}, schemas: {experiment_result: {variant: {type: 'string', values: ['a','b']}, count: {type: 'integer'}, email: {type: 'string'}, password: {type: 'string'}}}};
+const defaults = {endpoint: 'http://127.0.0.1:41739', propertyId, publicToken: 'synthetic-public-token', profile: 'identified', policyVersion: 1, choice: {enabled: true, detailedProperties: true, persistentAttribution: true, crossProperty: true}, routes: ['/fixture', '/', '/next', '/a', '/b', '/private/:code', '/alliances/:universe/:alliance'], handoffOrigins: {'https://destination.example': audienceId}, queue: {flushIntervalMs: 60000}, schemas: {experiment_result: {variant: {type: 'string', values: ['a','b']}, count: {type: 'integer'}, email: {type: 'string'}, password: {type: 'string'}}}};
 async function init(page: Page, options = {}) {
   await page.evaluate(async options => { (window as any).client = (window as any).Analytics.init(options); await (window as any).client.ready; }, {...defaults, ...options});
 }
@@ -60,7 +60,7 @@ test('URL, referrer, campaign and explicit property sanitization survives actual
   const collected = await events(request);
   expect(collected[0].campaign).toEqual({utm_campaign: 'autumn launch', utm_medium: 'email', utm_source: 'newsletter', experiment_id: 'trial-1'});
   expect(collected[1].properties).toEqual({variant: 'a', count: 3});
-  expect(collected[2].context.page).toBe(defaults.endpoint + '/private/:redacted');
+  expect(collected[2].context.page).toBe(defaults.endpoint + '/private/:code');
   expect(JSON.stringify(collected)).not.toMatch(/super-secret|never-send|synthetic@|script|#private|\?token|password|"subject"/);
   expect((await state(request)).requests.every((r: any) => r.referrer === null)).toBe(true);
 });
@@ -244,11 +244,11 @@ test('logout in another tab clears an identified shared-device boundary', async 
   expect((await events(request)).at(-1).visitor_id).not.toBe(before.visitor_id);
 });
 
-test('malformed and duplicate campaign values are discarded; no arbitrary URL path collection', async ({page, request}) => {
+test('malformed and duplicate campaign values are discarded; unmatched URL paths remain measurable', async ({page, request}) => {
   await page.goto('/private-name?utm_campaign=one&utm_campaign=two&utm_source=%EF%BF%BD&experiment=%3Cscript%3E');
   await init(page); await flush(page);
   const event = (await events(request))[0];
-  expect(event.campaign).toBeUndefined(); expect(event.context.page).toBe(defaults.endpoint + '/[redacted]');
+  expect(event.campaign).toBeUndefined(); expect(event.context.page).toBe(defaults.endpoint + '/private-name');
 });
 
 test('turning off detailed custom properties preserves broad interaction capture', async ({page, request}) => {
@@ -326,7 +326,7 @@ test('clean landing attribution is redacted, retained and handed off without cha
   await flush(page);
   const landing = (await events(request))[0];
   expect(landing.campaign).toEqual(landingCampaign);
-  expect(landing.context.page).toBe(defaults.endpoint + '/private/:redacted');
+  expect(landing.context.page).toBe(defaults.endpoint + '/private/:code');
   expect(page.url()).toBe(cleanURL);
   await page.evaluate(() => history.pushState({}, '', '/next'));
   await flush(page);
@@ -363,4 +363,29 @@ test('disabled collection does not retain landing attribution or replay it on re
   await page.evaluate(() => (window as any).client.setCollectionChoice({enabled: true}));
   await flush(page);
   expect((await events(request))[0].campaign).toBeUndefined();
+});
+
+
+test('route aggregation keeps named parameters, ordinary entity paths and unmatched pages', async ({page, request}) => {
+  await page.goto('/alliances/world-one/alliance-one?untracked=discard#discard');
+  await init(page); await flush(page);
+  const first = (await events(request))[0];
+  expect(first.context.page).toBe(defaults.endpoint + '/alliances/world-one/alliance-one');
+  expect(first.context.route).toBe(defaults.endpoint + '/alliances/:universe/:alliance');
+  await page.evaluate(() => history.pushState({}, '', '/new-page/not-registered/?discard=1#discard'));
+  await flush(page);
+  const next = (await events(request)).at(-1);
+  expect(next.context.page).toBe(defaults.endpoint + '/new-page/not-registered/');
+  expect(next.context.route).toBe(next.context.page);
+});
+
+
+test('server-owned document capture suppresses only the initial view, retaining SPA navigation', async ({page, request}) => {
+  await init(page, {initialPageView: false}); await flush(page);
+  expect(await events(request)).toEqual([]);
+  await page.evaluate(() => history.pushState({}, '', '/a'));
+  await flush(page);
+  const views = (await events(request)).filter((e: any) => e.name === 'page_view');
+  expect(views).toHaveLength(1);
+  expect(views[0].context.route).toBe(defaults.endpoint + '/a');
 });

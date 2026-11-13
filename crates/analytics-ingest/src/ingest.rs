@@ -60,13 +60,22 @@ fn validate(
             &e.context.release,
             &e.context.control,
             &e.context.correlation_id,
+            &e.context.authentication_method,
         ]
         .iter()
         .any(|v| v.as_ref().is_some_and(|v| !bounded_text(v, 256)))
     {
         return Err("invalid_context");
     }
-    if [&e.context.page, &e.context.referrer]
+    if e.context.source_occurred_at.is_some_and(|at| {
+        e.producer != Producer::Server
+            || e.category != EventCategory::Signup
+            || e.campaign.is_none()
+            || at > e.occurred_at
+    }) {
+        return Err("invalid_source_time");
+    }
+    if [&e.context.page, &e.context.route, &e.context.referrer]
         .iter()
         .any(|v| v.as_ref().is_some_and(|v| !safe_url(v)))
     {
@@ -362,9 +371,14 @@ pub(crate) async fn ingest(
                 e.subject=Some(NamespacedId {namespace:row.get("subject_namespace"),id:row.get("subject_id")});
                 if suppressed(&mut tx,p.id,None,None,e.subject.as_ref()).await? {results.push(result(e.event_id,"rejected",Some("suppressed"),None));continue;}
             }
-        let creates_touch = e.campaign.as_ref().is_some_and(|c| {
-            c.utm_campaign.is_some() || c.experiment_id.is_some() || c.utm_source.is_some()
-        }) && (e.visit_id.is_some() || e.visitor_id.is_some());
+        let source_time = e.context.source_occurred_at.unwrap_or(e.occurred_at);
+        let eligible_source =
+            source_time >= e.occurred_at - Duration::days(p.policy.attribution_window_days as i64);
+        let creates_touch = eligible_source
+            && e.campaign.as_ref().is_some_and(|c| {
+                c.utm_campaign.is_some() || c.experiment_id.is_some() || c.utm_source.is_some()
+            })
+            && (e.visit_id.is_some() || e.visitor_id.is_some());
         if !creates_touch && e.category != EventCategory::Signup {
             pending.push(batch::pending(&e, &p, &fingerprint, now, ordinal));
             receipts.insert((p.id, e.event_id), (fingerprint, None));
@@ -391,11 +405,10 @@ pub(crate) async fn ingest(
             .bind(e.subject.as_ref().map(|s|&s.namespace)).bind(e.subject.as_ref().map(|s|&s.id))
             .bind(now+Duration::days(p.policy.event_retention_days as i64)).fetch_one(&mut *tx).await?;
         if let Some(c) = &e.campaign
-            && (c.utm_campaign.is_some() || c.experiment_id.is_some() || c.utm_source.is_some())
-            && (e.visit_id.is_some() || e.visitor_id.is_some())
+            && creates_touch
         {
             sqlx::query("INSERT INTO ingest_touches(touch_id,property_id,event_id,occurred_at,visit_id,visitor_id,campaign,policy_version,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-                    .bind(touch_uuid(p.id,e.event_id)).bind(p.id).bind(e.event_id).bind(e.occurred_at).bind(&e.visit_id).bind(&e.visitor_id).bind(serde_json::to_value(c).unwrap()).bind(p.policy.version)
+                    .bind(touch_uuid(p.id,e.event_id)).bind(p.id).bind(e.event_id).bind(source_time).bind(&e.visit_id).bind(&e.visitor_id).bind(serde_json::to_value(c).unwrap()).bind(p.policy.version)
                     .bind(now+Duration::days(p.policy.attribution_window_days as i64)).execute(&mut *tx).await?;
         }
         if let Err(error) = attribute(&mut tx, &e, &p, now).await {

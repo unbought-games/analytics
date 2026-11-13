@@ -1,6 +1,6 @@
 import {BrowserState, newId} from './state.js';
 import {DeliveryQueue} from './queue.js';
-import {campaignFrom, propertiesFrom, safeName, sanitizeCampaign, sanitizeURL} from './sanitize.js';
+import {campaignFrom, pageContext, propertiesFrom, safeName, sanitizeCampaign, sanitizeURL} from './sanitize.js';
 import {observeNavigation} from './navigation.js';
 import type {AnalyticsClient, CollectionChoice, Coverage, Observation, Options, Properties, Transport} from './types.js';
 export interface ServiceAdapter extends Transport {
@@ -22,7 +22,7 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
   let epoch = 0;
   const operations = new Set<AbortController>();
   const getCoverage = (): Coverage => ({...coverage, dropped: {...coverage.dropped}});
-  const referrer = sanitizeURL(document.referrer, [], location.href);
+  const referrer = sanitizeURL(document.referrer, routes, location.href);
   const page = () => sanitizeURL(location.href, routes, location.href)!;
   const emit = (name: string, category: Observation['category'], properties: Properties = {}, active = false, campaign?: Observation['campaign'], sourceURL = location.href, eventId?: string) => {
     if (stopped || !state.enabled) return false;
@@ -31,7 +31,7 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
     coverage.produced++;
     const event: Observation = {
       id: eventId ?? newId(), name, category, occurredAt: new Date().toISOString(), properties,
-      page: sanitizeURL(sourceURL, routes, location.href)!, referrer, profile: state.profile, policyVersion: options.policyVersion,
+      page: sanitizeURL(sourceURL, routes, location.href)!, route: pageContext(sourceURL, routes, location.href)?.route ?? '', referrer, profile: state.profile, policyVersion: options.policyVersion,
       coverage: getCoverage(),
       ...(state.visitId ? {visitId: state.visitId} : {}),
       ...(state.visitorId ? {visitorId: state.visitorId} : {}),
@@ -122,7 +122,8 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
     if ((event as PageTransitionEvent).persisted && options.captureVisibility) emit('page_restore', 'lifecycle');
   });
   removals.push(observeNavigation(navigation));
-  navigation(initialURL, true);
+  if (options.initialPageView === false) latestURL = initialURL;
+  else navigation(initialURL, true);
   if (initialURL !== location.href) navigation();
   const invalidate = () => {
     epoch++;
