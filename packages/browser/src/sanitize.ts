@@ -23,6 +23,15 @@ export function campaignFrom(url: string, experimentKey: string): Campaign | und
   if (experiment) result.experiment = experiment;
   return Object.keys(result).length ? result : undefined;
 }
+export function sanitizeCampaign(input: Campaign | undefined): Campaign | undefined {
+  if (!input || typeof input !== 'object') return;
+  const result: Campaign = {};
+  for (const key of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'experiment'] as const) {
+    const value = boundedText(input[key]);
+    if (value) result[key] = value;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
 export function sanitizeURL(raw: string, routes: readonly string[], base: string): string | null {
   try {
     const url = new URL(raw, base);

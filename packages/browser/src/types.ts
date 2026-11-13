@@ -87,6 +87,10 @@ export interface Options {
   handoffOrigins?: Record<string, string>;
   /** Authenticated application forwards this exact DTO to /v1/journey/redeem. */
   redeemBridge?: (request: {handoff: string; audience: string; visit_id: string | null; visitor_id: string | null}, signal: AbortSignal) => Promise<void>;
+  /** Fallback attribution for the initial page view without decorating the URL.
+   * Explicit URL campaign fields take precedence. Values use normal campaign sanitization.
+   * Supply fixed labels, never personal data or invitation credentials. */
+  landingCampaign?: Campaign;
   experimentKey?: string;
   schemas?: Record<string, Record<string, Field>>;
   captureVisibility?: boolean;

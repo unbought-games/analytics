@@ -2,7 +2,7 @@ import {createClient} from './client.js';
 import {HttpAdapter} from './transport.js';
 import {boundedText} from './sanitize.js';
 import type {AnalyticsClient, CollectionChoice, Coverage, Options} from './types.js';
-export type {AnalyticsClient, CollectionChoice, Coverage, Field, Options, Profile, Properties} from './types.js';
+export type {AnalyticsClient, Campaign, CollectionChoice, Coverage, Field, Options, Profile, Properties} from './types.js';
 const clientsKey = Symbol.for('independent-analytics.clients.v1');
 type Registry = typeof globalThis & {[clientsKey]?: Map<string, AnalyticsClient>};
 export function init(options: Options): AnalyticsClient {

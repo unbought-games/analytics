@@ -467,3 +467,15 @@ links retain their native behavior and may have unavailable attribution. These
 helpers do not authenticate users or redeem handoffs; destination applications
 still implement the trusted bridge described above. Never transport account IDs,
 authentication tokens, or server credentials through these helpers.
+
+### Clean-link landing attribution
+
+Pass `landingCampaign: {utm_source: 'invitation', utm_medium: 'referral'}` to
+`init` on an application-recognized invitation landing. These fixed labels use
+the existing campaign fields without changing the address bar, shared link or
+browser history. The SDK sanitizes them using the same bounds as URL campaigns.
+An explicit URL campaign takes precedence as a whole; fallback labels apply only
+to the initial page view, never later SPA navigation or collection re-enablement.
+The resulting touch uses normal first-touch retention, handoff and identity
+association. Existing first-touch attribution is preserved. Respect collection
+policy and use aggregate labels, never invite codes, account IDs or personal data.

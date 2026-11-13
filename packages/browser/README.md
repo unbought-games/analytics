@@ -27,3 +27,15 @@ Identity and cross-property journeys require configured, authenticated applicati
 Delivery is bounded best effort, including on page closure. Inspect `getCoverage()` for queue saturation, permanent rejections, exhausted retries and control-request failures. No replay, fingerprinting, DOM snapshots, input listeners, offline disk queues or runtime dependencies are included.
 
 Requires modern browsers with Fetch, Web Crypto, AbortController, History and ES2022. The verified browser is Chromium; other engines need release-time verification. HTTP is supported only on loopback for local testing. No package has been published by this repository.
+
+### Clean-link landing attribution
+
+Pass `landingCampaign: {utm_source: 'invitation', utm_medium: 'referral'}` to
+`init` on an application-recognized invitation landing. These fixed labels use
+the existing campaign fields without changing the address bar, shared link or
+browser history. The SDK sanitizes them using the same bounds as URL campaigns.
+An explicit URL campaign takes precedence as a whole; fallback labels apply only
+to the initial page view, never later SPA navigation or collection re-enablement.
+The resulting touch uses normal first-touch retention, handoff and identity
+association. Existing first-touch attribution is preserved. Respect collection
+policy and use aggregate labels, never invite codes, account IDs or personal data.

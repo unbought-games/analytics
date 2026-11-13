@@ -316,3 +316,51 @@ test('same-origin config uses bodyless POST with browser-generated Origin and no
   const config = (await state(request)).requests.find((r: any) => r.path === '/v1/ingest/config');
   expect(config.method).toBe('POST'); expect(config.origin).toBe(defaults.endpoint); expect(config.referrer).toBeNull();
 });
+
+
+test('clean landing attribution is redacted, retained and handed off without changing the URL', async ({page, request}) => {
+  await page.goto('/private/inv_synthetic-secret');
+  const cleanURL = page.url();
+  const landingCampaign = {utm_source: 'invitation', utm_medium: 'referral'};
+  await init(page, {landingCampaign});
+  await flush(page);
+  const landing = (await events(request))[0];
+  expect(landing.campaign).toEqual(landingCampaign);
+  expect(landing.context.page).toBe(defaults.endpoint + '/private/:redacted');
+  expect(page.url()).toBe(cleanURL);
+  await page.evaluate(() => history.pushState({}, '', '/next'));
+  await flush(page);
+  const next = (await events(request)).at(-1);
+  expect(next.campaign).toBeUndefined();
+  expect(next.touch_id).toBe(landing.event_id);
+  await page.reload(); await init(page); await flush(page);
+  expect((await events(request)).at(-1).touch_id).toBe(landing.event_id);
+  await page.evaluate(() => (window as any).client.createHandoff('https://destination.example'));
+  const handoff = (await state(request)).requests.find((r: any) => r.path === '/v1/journey/handoff');
+  expect(handoff.body.touch_id).toBe(landing.event_id);
+  expect(JSON.stringify((await state(request)).requests)).not.toContain('inv_synthetic-secret');
+});
+
+test('landing attribution sanitizes input and preserves an earlier first touch and explicit campaigns', async ({page, request}) => {
+  await page.goto('/fixture?utm_source=earlier'); await init(page); await flush(page);
+  const first = (await events(request))[0];
+  await page.goto('/private/inv_synthetic-secret');
+  await init(page, {landingCampaign: {utm_source: 'invitation', utm_medium: 'referral', utm_campaign: 'private@example.invalid', utm_content: '<script>', extra: 'never-send'}});
+  await flush(page);
+  expect((await events(request)).at(-1).campaign).toEqual({utm_source: 'invitation', utm_medium: 'referral'});
+  expect(await page.evaluate(() => (window as any).client.getJourneyContext())).toMatchObject({touch_id: first.event_id});
+  await page.goto('/fixture?utm_source=newsletter');
+  await init(page, {landingCampaign: {utm_source: 'invitation', utm_medium: 'referral'}}); await flush(page);
+  expect((await events(request)).at(-1).campaign).toEqual({utm_source: 'newsletter'});
+  expect(JSON.stringify(await events(request))).not.toMatch(/private@|script|never-send|inv_synthetic/);
+});
+
+test('disabled collection does not retain landing attribution or replay it on re-enable', async ({page, request}) => {
+  await init(page, {choice: {enabled: false}, landingCampaign: {utm_source: 'invitation'}});
+  await flush(page);
+  expect(await events(request)).toEqual([]);
+  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+  await page.evaluate(() => (window as any).client.setCollectionChoice({enabled: true}));
+  await flush(page);
+  expect((await events(request))[0].campaign).toBeUndefined();
+});

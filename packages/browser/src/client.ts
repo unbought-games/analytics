@@ -1,6 +1,6 @@
 import {BrowserState, newId} from './state.js';
 import {DeliveryQueue} from './queue.js';
-import {campaignFrom, propertiesFrom, safeName, sanitizeURL} from './sanitize.js';
+import {campaignFrom, propertiesFrom, safeName, sanitizeCampaign, sanitizeURL} from './sanitize.js';
 import {observeNavigation} from './navigation.js';
 import type {AnalyticsClient, CollectionChoice, Coverage, Observation, Options, Properties, Transport} from './types.js';
 export interface ServiceAdapter extends Transport {
@@ -43,12 +43,12 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
     if (!queued) state.forgetTouch(event.id);
     return queued;
   };
-  const navigation = (sourceURL = location.href, eventId?: string) => {
+  const navigation = (sourceURL = location.href, landing = false) => {
     if (stopped || latestURL === sourceURL) return;
     latestURL = sourceURL;
     if (!state.enabled) return;
     if (document.visibilityState === 'visible') state.activity();
-    const campaign = campaignFrom(sourceURL, options.experimentKey ?? 'experiment');
+    const campaign = campaignFrom(sourceURL, options.experimentKey ?? 'experiment') ?? (landing ? sanitizeCampaign(options.landingCampaign) : undefined);
     const touch = campaign && (campaign.utm_campaign || campaign.utm_source || campaign.experiment) ? state.touch(campaign, sanitizeURL(sourceURL, routes, location.href)!, referrer) : undefined;
     emit('page_view', 'navigation', {}, false, campaign, sourceURL, touch?.id);
   };
@@ -122,7 +122,7 @@ export function createClient(options: Options, adapter: ServiceAdapter, onShutdo
     if ((event as PageTransitionEvent).persisted && options.captureVisibility) emit('page_restore', 'lifecycle');
   });
   removals.push(observeNavigation(navigation));
-  navigation(initialURL);
+  navigation(initialURL, true);
   if (initialURL !== location.href) navigation();
   const invalidate = () => {
     epoch++;
