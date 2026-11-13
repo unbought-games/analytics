@@ -488,6 +488,12 @@
       "EventContext": {
         "additionalProperties": false,
         "properties": {
+          "authentication_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "control": {
             "type": [
               "string",
@@ -516,6 +522,19 @@
             ]
           },
           "release": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "route": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_occurred_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"

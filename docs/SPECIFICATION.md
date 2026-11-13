@@ -75,7 +75,7 @@ This is the acceptance story, not approval to launch a public campaign or disclo
 
 1. We define an experiment such as `open-finances-2026-11` and tag links with standard UTM parameters and, optionally, an explicit experiment identifier.
 2. Someone visits an illustrative page such as `https://company.example/open`. `/open`, `/finances`, and `/analytics` are examples, not selected routes or existing features.
-3. The browser library automatically records the landing, allowed UTM values, source context, and subsequent navigation/interactions.
+3. Application middleware records document requests and their source context on the server. The browser library supplements navigation/interactions that only the browser observes.
 4. The visitor explores the company, opens a game landing page, and starts signup through the identity application.
 5. Eligible attribution context survives the cross-property/authentication journey. The authoritative signup event is associated with the selected campaign and account.
 6. That account enrolls in the game application or another game. A verified identity mapping connects the acquisition record to the game's player ID.
@@ -467,3 +467,17 @@ Complete the full story in a controlled local/integration environment. Live veri
 This repository is a generic independently deployable product. Do not include references, paths, hostnames, integration configuration, schemas or private working memory from the operator’s other properties. Use manufactured datasets and synthetic producers for all committed tests, examples and benchmarks. Optional smoke tests against applications outside this repository are local setup only; no deployment or package publication is part of implementation.
 
 Record tested revisions, acceptance evidence A01–A14, benchmark results, sample exports, and remaining deployment/publication steps. Distinguish implemented, tested, deployed and collecting real data. Commits and PR titles follow Conventional Commits.
+
+## Server-first acquisition and route reporting
+
+Prefer capture from authoritative application requests and transactions. Browser
+SDK availability must not determine whether a committed registration or enrollment
+is recorded. Retain source context before authentication, snapshot registration
+source with user creation, and capture enrollment in its transaction or a durable
+projection. Application workers deliver immutable payloads with stable IDs.
+
+Named router patterns are aggregation keys (`context.route`), with concrete paths
+for drill-down (`context.page`). Unrecognized paths are captured without manual
+registration. Credential-bearing route parameters keep their declared names
+(e.g. `:code`); queries and fragments remain excluded. `authentication_method`
+records the backend-observed signup/login method; it does not identify a person.

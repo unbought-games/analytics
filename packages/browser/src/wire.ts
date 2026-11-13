@@ -41,12 +41,15 @@ export type EventAcknowledgement = {
 export type EventCategory = "navigation" | "interaction" | "form" | "visibility" | "signup" | "enrollment" | "human_action" | "scheduled" | "system" | "custom";
 
 export type EventContext = {
+  "authentication_method"?: string | null;
   "control"?: string | null;
   "correlation_id"?: string | null;
   "environment": string;
   "page"?: string | null;
   "referrer"?: string | null;
   "release"?: string | null;
+  "route"?: string | null;
+  "source_occurred_at"?: string | null;
 };
 
 export type EventEnvelope = {

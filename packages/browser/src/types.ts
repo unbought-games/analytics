@@ -51,7 +51,8 @@ export interface Observation {
   occurredAt: string;
   category: 'navigation' | 'interaction' | 'form' | 'lifecycle' | 'custom';
   properties: Properties;
-  page: string;
+  page: string | null;
+  route: string | null;
   referrer: string | null;
   profile: Profile;
   policyVersion: number;
@@ -81,14 +82,20 @@ export interface Options {
   profile?: Profile;
   policyVersion: number;
   choice?: CollectionChoice;
-  /** Exact static paths or templates such as /articles/:slug. All parameters are redacted. */
+  /** Exact static paths or templates such as /articles/:slug. Parameters keep their names in context.route; code/token/secret/password values are also removed from context.page. */
   routes?: readonly string[];
   /** Origin allowlist for outgoing handoffs; only configured HTTPS audiences are eligible. */
   handoffOrigins?: Record<string, string>;
   /** Authenticated application forwards this exact DTO to /v1/journey/redeem. */
   redeemBridge?: (request: {handoff: string; audience: string; visit_id: string | null; visitor_id: string | null}, signal: AbortSignal) => Promise<void>;
+  /** Fallback attribution for the initial page view without decorating the URL.
+   * Explicit URL campaign fields take precedence. Values use normal campaign sanitization.
+   * Supply fixed labels, never personal data or invitation credentials. */
+  landingCampaign?: Campaign;
   experimentKey?: string;
   schemas?: Record<string, Record<string, Field>>;
+  /** Disable when the application server already records document requests. SPA navigation is still captured. */
+  initialPageView?: boolean;
   captureVisibility?: boolean;
   respectPreferenceSignals?: boolean;
   sessionTimeoutMs?: number;

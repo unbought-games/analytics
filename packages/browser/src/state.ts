@@ -72,7 +72,7 @@ export class BrowserState {
     }
     if (!Object.keys(campaign).length || typeof touch.landing !== 'string') return;
     const landing = sanitizeURL(touch.landing, this.options.routes ?? ['/'], location.href);
-    const referrer = typeof touch.referrer === 'string' ? sanitizeURL(touch.referrer, [], location.href) : null;
+    const referrer = typeof touch.referrer === 'string' ? sanitizeURL(touch.referrer, this.options.routes ?? ['/'], location.href) : null;
     if (!landing) return;
     return {id: touch.id, occurredAt: touch.occurredAt, expiresAt: touch.expiresAt, campaign, landing, referrer};
   }
