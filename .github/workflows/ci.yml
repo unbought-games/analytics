@@ -4,39 +4,76 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: analytics-${{ github.workflow }}-${{ github.ref }}
+  group: analytics-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Select validation scope
+        id: scope
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/ci_scope.py >> "$GITHUB_OUTPUT"
+      - name: Test validation selection
+        run: make test-ci
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.native == 'true'
         with:
           node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/producers/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - name: Official SDK runner
+        if: steps.scope.outputs.native == 'true'
         run: python -m pip install uv==0.9.5
       - name: Rust toolchain
+        if: steps.scope.outputs.native == 'true'
         run: rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt && rustup default 1.99.0
+      - name: Cache Rust dependencies
+        if: steps.scope.outputs.native == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Install browser dependencies
+        if: steps.scope.outputs.native == 'true'
         run: |
           npm ci
           npm --prefix examples/producers ci --ignore-scripts
       - name: Install real browser
+        if: steps.scope.outputs.native == 'true'
         run: npx playwright install --with-deps chromium
       - name: Build and static checks
+        if: steps.scope.outputs.native == 'true'
         run: make build check
-      - name: Complete disposable acceptance
-        run: make acceptance
+      - name: Run selected validation
+        env:
+          SUITE: ${{ steps.scope.outputs.suite }}
+        run: |
+          case "$SUITE" in
+            fixtures|analysis|integration|acceptance) make "$SUITE" ;;
+            *) echo "Invalid validation suite" >&2; exit 1 ;;
+          esac
+      - name: Verify lockfiles remain unchanged
+        if: always()
+        run: git diff --exit-code -- Cargo.lock package-lock.json examples/producers/package-lock.json
       - name: Upload non-secret command evidence
         if: always()
         uses: actions/upload-artifact@v4
