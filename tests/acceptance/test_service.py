@@ -180,6 +180,28 @@ class ServiceTests(unittest.TestCase):
         manifest=json.loads((bundle.parent/"acquisition/manifest.json").read_text())
         subprocess.run(["uv","run","--project","tests/mcp","--locked","--python","3.13","python","tests/mcp/interop.py","--url",service.url,"--credentials",str(service.directory/"bootstrap.json"),"--expect-issuer",service.oidc.issuer,"--manifest-url",service.url+"/v1/exports/"+manifest["export_id"]+"/manifest"],cwd=ROOT,check=True)
 
+    def test_98_missing_export_volume_allows_fresh_queries_without_restart(self):
+        service = self.service
+        source = configure(service, known_coverage=True)
+        bundle = download_bundle(service, source, service.directory / "before-file-loss")
+        manifest = json.loads((bundle.parent / "acquisition/manifest.json").read_text())
+        shutil.rmtree(service.exports)  # Only this isolated fixture's generated files.
+        status = service.client.tool("export_status", {"id": manifest["export_id"]})
+        self.assertEqual(status["status"], "failed")
+        self.assertEqual(status["error"], "artifact_unavailable")
+        self.assertIsNone(status["manifest_url"])
+        with self.assertRaises(HTTPError) as missing:
+            service.client.download(manifest["datasets"][0], service.directory / "missing-download")
+        self.assertEqual(missing.exception.code, 410)
+        self.assertTrue(service.client.tool("status")["ready"])
+        new_bundle = download_bundle(service, source, service.directory / "after-file-loss")
+        new_manifest = json.loads((new_bundle.parent / "acquisition/manifest.json").read_text())
+        self.assertNotEqual(new_manifest["export_id"], manifest["export_id"])
+        self.assertEqual(new_manifest["datasets"][0]["sha256"], manifest["datasets"][0]["sha256"])
+        report = analyze(new_bundle, service.directory / "after-file-loss-report")
+        campaign = next(row for row in report["campaigns"] if row["campaign"] == "glass-garden")
+        self.assertEqual(campaign["acquired_accounts"], 10)
+
     def test_99_restore_engine_database_exports_revocations_and_new_queries(self):
         service = self.service
         source = configure(service, known_coverage=True)

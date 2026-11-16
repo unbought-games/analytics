@@ -269,6 +269,92 @@ async fn durable_remote_export_reconnect_scope_partial_failure_cancel_expiry_rev
     partial.query.budget.max_rows = 1;
     let job = create(partial).await;
     assert_eq!(until_done(&client, &base, job.id).await.status, "partial");
+    // Lost temporary artifacts must not keep advertising a successful download.
+    // Exercise each public read path first, including a partial export and a
+    // completely missing export directory (e.g. a recreated service volume).
+    for first_read in ["status", "manifest", "download"] {
+        let mut lost_request = request.clone();
+        if first_read == "manifest" {
+            lost_request.query.budget.max_rows = 1;
+        }
+        let lost = create(lost_request).await;
+        let before = until_done(&client, &base, lost.id).await;
+        assert!(matches!(before.status.as_str(), "complete" | "partial"));
+        tokio::fs::remove_dir_all(state.config.export_directory.join(lost.id.to_string()))
+            .await
+            .unwrap();
+        let path = match first_read {
+            "manifest" => format!("{base}/v1/exports/{}/manifest", lost.id),
+            "download" => format!("{base}/v1/exports/{}/files/data.jsonl", lost.id),
+            _ => format!("{base}/v1/exports/{}", lost.id),
+        };
+        // Anonymous access cannot reveal or mutate an artifact's lifecycle.
+        assert_eq!(client.get(&path).send().await.unwrap().status(), 401);
+        let persisted: String = sqlx::query_scalar("SELECT status FROM export_jobs WHERE id=$1")
+            .bind(lost.id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(persisted, before.status);
+        let response = client
+            .get(&path)
+            .bearer_auth("fixture-query-token")
+            .send()
+            .await
+            .unwrap();
+        if first_read == "status" {
+            assert_eq!(response.status(), 200);
+        } else {
+            assert_eq!(response.status(), 410);
+            let body: serde_json::Value = response.json().await.unwrap();
+            assert_eq!(body["error"]["code"], "artifact_unavailable");
+        }
+        let after = until_done(&client, &base, lost.id).await;
+        assert_eq!(after.status, "failed");
+        assert_eq!(after.error.as_deref(), Some("artifact_unavailable"));
+        assert!(after.manifest_url.is_none());
+        for suffix in ["manifest", "files/data.jsonl"] {
+            assert_eq!(
+                client
+                    .get(format!("{base}/v1/exports/{}/{suffix}", lost.id))
+                    .bearer_auth("fixture-query-token")
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                410
+            );
+        }
+        // Recovery is an explicit new query with a new identity; existing healthy
+        // downloads and the source database remain usable.
+        let replacement = create(request.clone()).await;
+        assert_ne!(replacement.id, lost.id);
+        assert_eq!(
+            until_done(&client, &base, replacement.id).await.status,
+            "complete"
+        );
+        let replacement_data = client
+            .get(format!(
+                "{base}/v1/exports/{}/files/data.jsonl",
+                replacement.id
+            ))
+            .bearer_auth("fixture-query-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(replacement_data.status(), 200);
+        assert_eq!(replacement_data.bytes().await.unwrap(), data);
+        assert_eq!(
+            client
+                .get(&m.datasets[0].download_url)
+                .bearer_auth("fixture-query-token")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
     let mut failed = request.clone();
     failed.query.query = json!({"sql":"SELECT hidden FROM reporting.activity ORDER BY 1"});
     let job = create(failed).await;
