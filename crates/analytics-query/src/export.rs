@@ -178,19 +178,62 @@ fn status_from(state: &AppState, row: &sqlx::postgres::PgRow) -> ExportStatus {
         error: row.get("error"),
     }
 }
+fn artifact_unavailable() -> ApiError {
+    ApiError::new(
+        StatusCode::GONE,
+        "artifact_unavailable",
+        "Export file is no longer available; create a new export from the retained source data",
+    )
+}
+
+async fn mark_artifact_unavailable(state: &AppState, id: Uuid) -> ApiResult<()> {
+    // Only a published artifact can be lost. Do not overwrite concurrent expiry,
+    // cancellation or a worker still writing its temporary file.
+    sqlx::query("UPDATE export_jobs SET status='failed',error='artifact_unavailable',manifest=NULL WHERE id=$1 AND status IN ('complete','partial') AND expires_at>now()")
+        .bind(id).execute(&state.db).await?;
+    Ok(())
+}
+
+async fn checked_job(
+    state: &AppState,
+    actor: &AuthContext,
+    id: Uuid,
+) -> ApiResult<sqlx::postgres::PgRow> {
+    let row = authorized_job(state, actor, id, "exports:read").await?;
+    if matches!(
+        status_from(state, &row).status.as_str(),
+        "complete" | "partial"
+    ) {
+        let path = state
+            .config
+            .export_directory
+            .join(id.to_string())
+            .join("data.jsonl");
+        match fs::metadata(path).await {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                mark_artifact_unavailable(state, id).await?;
+                return authorized_job(state, actor, id, "exports:read").await;
+            }
+            Err(_) => return Err(ApiError::internal()),
+        }
+    }
+    Ok(row)
+}
+
 pub async fn status(state: &AppState, actor: &AuthContext, id: Uuid) -> ApiResult<ExportStatus> {
-    Ok(status_from(
-        state,
-        &authorized_job(state, actor, id, "exports:read").await?,
-    ))
+    Ok(status_from(state, &checked_job(state, actor, id).await?))
 }
 pub async fn manifest(
     state: &AppState,
     actor: &AuthContext,
     id: Uuid,
 ) -> ApiResult<ExportManifest> {
-    let row = authorized_job(state, actor, id, "exports:read").await?;
+    let row = checked_job(state, actor, id).await?;
     let status = status_from(state, &row);
+    if status.status == "failed" && status.error.as_deref() == Some("artifact_unavailable") {
+        return Err(artifact_unavailable());
+    }
     if matches!(status.status.as_str(), "expired" | "cancelled") {
         return Err(ApiError::new(
             StatusCode::GONE,
@@ -237,7 +280,7 @@ pub async fn download(
             "Dataset not found",
         ));
     }
-    let file = fs::File::open(
+    let file = match fs::File::open(
         state
             .config
             .export_directory
@@ -245,7 +288,16 @@ pub async fn download(
             .join(file),
     )
     .await
-    .map_err(|_| ApiError::internal())?;
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // The file can disappear after manifest validation. Classify that
+            // race identically without pretending a fresh query is the old data.
+            mark_artifact_unavailable(state, id).await?;
+            return Err(artifact_unavailable());
+        }
+        Err(_) => return Err(ApiError::internal()),
+    };
     // Revalidate current authorization/status on every bounded chunk, including
     // mid-download revocation. A revoked connection terminates without new data.
     let stream = futures_util::stream::try_unfold(

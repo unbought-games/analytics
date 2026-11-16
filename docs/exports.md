@@ -48,6 +48,22 @@ Rows stream to a mode-0600 temporary file under a mode-0700 generated UUID direc
 
 States are queued, running, complete, partial, failed, cancelled and expired. Limit exhaustion after output yields explicit partial data with continuation/reproduction guidance; failure before any row yields a failed manifest without a data file. Vendor pagination retains a cursor when stopped at a page boundary. A failure in the middle of a page requires rerunning and deduplicating stable IDs. Cancelled/expired files cannot be retrieved. Cleanup removes terminal temporary files and expired files in bounded batches. Migration `0006_export_cleanup.sql` records durable cleanup progress so old rows cannot starve newer artifacts; active workers release their lease before cleanup marks completion. Already downloaded copies remain the recipient's responsibility under the applicable deletion/retention policy.
 
+### Missing files and recovery
+
+Generated files are expiring query results, not the source of ingestion facts.
+If an unexpired complete/partial export loses its file, status returns `failed`
+with `error: "artifact_unavailable"` and no manifest URL. Manifest/download requests
+return HTTP 410 with that error code and instructions to create a new export.
+The original job is not silently rerun: new exports have new IDs and source-read
+boundaries, and source changes or retention can change the result. Authorization
+and source/credential revocation checks still precede artifact inspection.
+Filesystem failures other than a missing file remain operational errors.
+
+Recreate a missing export directory through normal new-export creation; ingestion
+and unrelated exports do not require the old files. For database-only recovery,
+old artifact records reconcile on access and terminal files follow normal cleanup.
+Keep exact input bundles separately when a report needs durable historical evidence.
+
 ## Composable analytics
 
 Use `kind:"analytics"`, exactly one `property_id`, and `query.dataset` `events`, `acquisition`, `identity_map`, `visits` or `touches`. Queries support `select`, `filters`, `group_by`, `aggregates` and `order_by`. Field paths such as `properties.amount` or `context.environment` allow up to four safe identifier segments.
