@@ -14,7 +14,10 @@ Ingestion test preparation took 49.12 seconds; the first full ingestion executio
 was 28.88 seconds. Query dependency preparation took 1m44s and execution 0.57s.
 These are development timings, not production throughput claims.
 
-No application failures occurred in the initial ingestion/query checks. The schema
+Review identified missing occurrence/expiry indexes for long activity histories.
+Added property/time indexes (including received_at for shortened policies) and
+verified narrow reads and cleanup predicates avoid sequential history scans with
+20,000 synthetic facts. No application failures occurred in the initial ingestion/query checks. The schema
 is additive and tested on real PostgreSQL. The browser acceptance harness includes
 the new migration because privacy retention/deletion now covers compact activity.
 

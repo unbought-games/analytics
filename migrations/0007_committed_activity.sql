@@ -12,6 +12,10 @@ CREATE TABLE ingest_activity (
 );
 CREATE INDEX ingest_activity_scope ON ingest_activity(property_id,world,epoch,actor,at_ms);
 CREATE INDEX ingest_activity_subject ON ingest_activity(property_id,subject_namespace,subject_id);
+CREATE INDEX ingest_activity_occurrence ON ingest_activity(property_id,occurred_at,event_id);
+CREATE INDEX ingest_activity_expiry ON ingest_activity(property_id,expires_at);
+-- A shortened policy also selects received_at before original expires_at.
+CREATE INDEX ingest_activity_received ON ingest_activity(property_id,received_at);
 CREATE FUNCTION retain_committed_activity() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  IF NEW.payload->>'name'='committed_activity' THEN
