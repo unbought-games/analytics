@@ -316,3 +316,6 @@ allowed Origin; missing query, missing/null/unapproved Origin and invalid tokens
 remain denied. Configuration and ingestion tables remain unchanged by these reads.
 The additive generator documents both POST aliases and required Origin headers.
 Actual Chromium SDK same-/cross-origin verification is owned by browser integration.
+
+See [compact committed activity](committed-activity.md) for exact authoritative
+action facts retained beyond detailed-event expiry under identity retention.

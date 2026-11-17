@@ -47,6 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::raw_sql(include_str!("../../../migrations/0002_ingestion.sql"))
         .execute(&pool)
         .await?;
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/0007_committed_activity.sql"
+    ))
+    .execute(&pool)
+    .await?;
     let property_id = Uuid::new_v4();
     let origin = std::env::var("BROWSER_TEST_ORIGIN").unwrap_or("http://127.0.0.1:4173".into());
     let p = PropertyDefinition {

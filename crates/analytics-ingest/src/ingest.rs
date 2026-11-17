@@ -18,6 +18,39 @@ fn validate(
     s: &EventSchemaDefinition,
     browser: bool,
 ) -> Result<(), &'static str> {
+    if e.name == "committed_activity" {
+        let keys = ["world", "epoch", "actor", "action"];
+        if browser
+            || e.category != EventCategory::HumanAction
+            || e.schema_version != 1
+            || e.collection.profile != CollectionProfile::Identified
+            || e.subject.is_none()
+            || e.clock != "game"
+            || e.campaign.is_some()
+            || e.visit_id.is_some()
+            || e.visitor_id.is_some()
+            || e.properties.len() != keys.len()
+            || keys.iter().any(|k| {
+                !e.properties
+                    .get(*k)
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|v| bounded_text(v, 128))
+            })
+            || !e
+                .logical_time
+                .as_ref()
+                .and_then(|v| v.parse::<i64>().ok())
+                .is_some_and(|at| at >= 0 && at == e.occurred_at.timestamp_millis())
+            || !e
+                .occurred_at
+                .timestamp_subsec_nanos()
+                .is_multiple_of(1_000_000)
+            || e.collection.sample_rate != 1.0
+            || e.collection.dropped_events != 0
+        {
+            return Err("invalid_committed_activity");
+        }
+    }
     if e.property_id != p.id
         || !safe_key(&e.name)
         || e.schema_version < 1
