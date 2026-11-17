@@ -49,6 +49,12 @@ async fn scoped_analytics_null_count_nested_aggregation_retention_visits_touch_o
         .execute(&db)
         .await
         .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/0007_committed_activity.sql"
+    ))
+    .execute(&db)
+    .await
+    .unwrap();
     let state = AppState {
         db: db.clone(),
         auth: Arc::new(NoAuth),
@@ -226,6 +232,51 @@ async fn scoped_analytics_null_count_nested_aggregation_retention_visits_touch_o
     assert_eq!(acquisitions.0[0]["visit_id"], "signup-visit");
     assert_eq!(acquisitions.0[0]["touch_id"], touch.to_string());
     assert!(acquisitions.0[0].get("origin_property").is_none());
+    // Activity query uses retained compact facts with property, cutoff and expiry isolation.
+    for (property, offset, expired) in
+        [(a, -1, false), (b, -1, false), (a, 1, false), (a, -1, true)]
+    {
+        sqlx::query("INSERT INTO ingest_activity(property_id,event_id,world,epoch,actor,action,at_ms,occurred_at,subject_namespace,subject_id,policy_version,expires_at) VALUES($1,$2,'world','epoch','player','Build',$3,$4,'issuer','account',1,$5)")
+            .bind(property).bind(Uuid::new_v4()).bind(now.timestamp_millis()+offset)
+            .bind(now+Duration::milliseconds(offset)).bind(if expired {now-Duration::days(1)} else {now+Duration::days(100)}).execute(&db).await.unwrap();
+    }
+    query.property_id = Some(a);
+    query.query = json!({"dataset":"activity"});
+    let mut activity = Sink::default();
+    analytics::run(
+        &state,
+        &query,
+        &Budget::default(),
+        &mut activity,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(activity.0.len(), 1);
+    assert_eq!(activity.0[0]["action"], "Build");
+    assert_eq!(
+        activity.0[0]["at_ms"],
+        (now.timestamp_millis() - 1).to_string()
+    );
+    // A narrow time window or cleanup batch must not scan a property's lifetime
+    // history. Include the policy-shortening branch of the real retention predicate.
+    sqlx::query("INSERT INTO ingest_activity(property_id,event_id,world,epoch,actor,action,at_ms,occurred_at,subject_namespace,subject_id,policy_version,received_at,expires_at) SELECT $1,gen_random_uuid(),'bulk-world','bulk-epoch','bulk-player','Build',$2-g*1000,$3-make_interval(secs=>g),'issuer','bulk-account',1,$3-make_interval(secs=>g),CASE WHEN g=1 THEN $3-interval '1 day' ELSE $3+interval '365 days' END FROM generate_series(1,20000) g")
+        .bind(a).bind(now.timestamp_millis()).bind(now).execute(&db).await.unwrap();
+    sqlx::query("ANALYZE ingest_activity")
+        .execute(&db)
+        .await
+        .unwrap();
+    for predicate in [
+        "occurred_at >= $2-interval '2 seconds' AND occurred_at < $2-interval '1 second'",
+        "(expires_at <= $2 OR received_at < $2-interval '19999 seconds')",
+    ] {
+        let plan:Value=sqlx::query_scalar(&format!("EXPLAIN (ANALYZE,FORMAT JSON) SELECT event_id FROM ingest_activity WHERE property_id=$1 AND {predicate} LIMIT 10000"))
+            .bind(a).bind(now).fetch_one(&db).await.unwrap();
+        assert!(
+            !plan.to_string().contains("Seq Scan"),
+            "narrow activity lookup scanned history: {plan}"
+        );
+    }
     db.close().await;
     sqlx::query(&format!("DROP DATABASE {name} WITH (FORCE)"))
         .execute(&admin)

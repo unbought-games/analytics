@@ -70,6 +70,12 @@ async fn state() -> AppState {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/0007_committed_activity.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     AppState {
         db: pool,
         auth: Arc::new(TestAuthorization),
@@ -1731,4 +1737,124 @@ async fn server_only_signup_carries_source_route_and_authentication_method() {
             .await
             .unwrap();
     assert_eq!(retained, campaign);
+}
+
+#[tokio::test]
+async fn committed_activity_survives_event_expiry_deduplicates_and_obeys_deletion() {
+    let s = state().await;
+    let (p, token) = configure(&s, CollectionProfile::Identified).await;
+    let schema = EventSchemaDefinition {
+        property_id: p.id,
+        name: "committed_activity".into(),
+        version: 1,
+        category: EventCategory::HumanAction,
+        authoritative: true,
+        properties: ["world", "epoch", "actor", "action"]
+            .into_iter()
+            .map(|k| {
+                (
+                    k.into(),
+                    PropertyType {
+                        kind: "string".into(),
+                        required: true,
+                        max_length: Some(128),
+                        unit: None,
+                    },
+                )
+            })
+            .collect(),
+    };
+    sqlx::query("INSERT INTO admin_objects(kind,id,scope_kind,scope_id,value) VALUES('schemas',$1,'property',$2,$3)")
+        .bind(format!("{}:committed_activity:1",p.id)).bind(p.id.to_string()).bind(json!(schema)).execute(&s.db).await.unwrap();
+    let mut e = event(&p, "action");
+    e.name = "committed_activity".into();
+    e.clock = "game".into();
+    e.occurred_at =
+        chrono::DateTime::from_timestamp_millis(e.occurred_at.timestamp_millis()).unwrap();
+    e.logical_time = Some(e.occurred_at.timestamp_millis().to_string());
+    e.visit_id = None;
+    e.visitor_id = None;
+    e.subject = Some(subject());
+    e.properties = [
+        ("world", "world-a"),
+        ("epoch", "epoch-a"),
+        ("actor", "player-a"),
+        ("action", "Build"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.into(), json!(v)))
+    .collect();
+    let send = |events| {
+        request(
+            &s,
+            "/v1/ingest/server",
+            "synthetic-test-server",
+            json!({"events":events}),
+            true,
+        )
+    };
+    assert_eq!(
+        browser(&s, &token, vec![e.clone()]).await["results"][0]["status"],
+        "rejected"
+    );
+    assert_eq!(
+        send(vec![e.clone()]).await.1["results"][0]["status"],
+        "accepted"
+    );
+    assert_eq!(
+        send(vec![e.clone()]).await.1["results"][0]["status"],
+        "duplicate"
+    );
+    let mut conflict = e.clone();
+    conflict.properties.insert("action".into(), json!("Other"));
+    assert_eq!(
+        send(vec![conflict]).await.1["results"][0]["status"],
+        "conflict"
+    );
+    let mut invalid = e.clone();
+    invalid.event_id = Uuid::new_v4();
+    invalid.collection.consent = false;
+    assert_eq!(
+        send(vec![invalid]).await.1["results"][0]["status"],
+        "rejected"
+    );
+    sqlx::query(
+        "UPDATE ingest_events SET expires_at=now()-interval '1 second' WHERE property_id=$1",
+    )
+    .bind(p.id)
+    .execute(&s.db)
+    .await
+    .unwrap();
+    retain(&s, &actor(), p.id).await.unwrap();
+    let activity: (i64, String) =
+        sqlx::query_as("SELECT at_ms,action FROM ingest_activity WHERE property_id=$1")
+            .bind(p.id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(activity, (e.occurred_at.timestamp_millis(), "Build".into()));
+    assert_eq!(
+        send(vec![e.clone()]).await.1["results"][0]["status"],
+        "duplicate"
+    );
+    delete(
+        &s,
+        &actor(),
+        DeletionRequest {
+            property_id: p.id,
+            subject: Some(subject()),
+            visitor_id: None,
+            reason: "fixture".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM ingest_activity WHERE property_id=$1")
+            .bind(p.id)
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+    assert_eq!(send(vec![e]).await.1["results"][0]["status"], "rejected");
 }

@@ -56,7 +56,7 @@ pub fn parse(value: &Value) -> ApiResult<AnalyticsQuery> {
         .map_err(|_| ApiError::bad_request("Invalid analytics query"))?;
     if !matches!(
         q.dataset.as_str(),
-        "events" | "acquisition" | "identity_map" | "visits" | "touches"
+        "events" | "acquisition" | "identity_map" | "visits" | "touches" | "activity"
     ) || q.select.len() > 64
         || q.filters.len() > 32
         || q.group_by.len() > 8
@@ -115,6 +115,7 @@ pub async fn run(
         tx.execute(format!("SET LOCAL statement_timeout={}; SET LOCAL lock_timeout=1000; SET LOCAL timezone='UTC'",budget.timeout_ms).as_str()).await?;
         let watermark:Option<i64>=sqlx::query_scalar("SELECT max(receipt_cursor) FROM ingest_events WHERE property_id=$1").bind(property).fetch_one(&mut *tx).await?;
         let (table,time,projection)=match q.dataset.as_str(){
+            "activity"=>("ingest_activity","occurred_at","jsonb_build_object('event_id',event_id::text,'world',world,'epoch',epoch,'actor',actor,'action',action,'at_ms',at_ms,'subject_namespace',subject_namespace,'subject_id',subject_id,'policy_version',policy_version)"),
             "events"=>("ingest_events","occurred_at","payload || jsonb_build_object('receipt_cursor',receipt_cursor,'received_at',to_char(received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'))"),
             "acquisition"=>("ingest_acquisitions","signed_up_at","jsonb_build_object('event_id',signup_event_id::text,'kind','signup','campaign',coalesce(campaign->>'experiment_id',campaign->>'utm_campaign'),'occurred_at',to_char(signed_up_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),'authoritative',true,'property',property_id::text,'visit_id',(SELECT e.visit_id FROM ingest_events e WHERE e.property_id=ingest_acquisitions.property_id AND e.event_id=signup_event_id AND e.expires_at>now()),'issuer',subject_namespace,'subject',subject_id,'attribution_rule',rule_version,'touch_id',first_touch_id::text,'last_touch_id',last_touch_id::text,'campaign_facts',campaign)"),
             "touches"=>("ingest_touches","occurred_at","jsonb_build_object('touch_id',touch_id::text,'event_id',event_id::text,'property',property_id::text,'visit_id',visit_id,'occurred_at',to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),'campaign',coalesce(campaign->>'experiment_id',campaign->>'utm_campaign'),'campaign_facts',campaign,'linkage_permitted',visit_id IS NOT NULL AND visitor_id IS NOT NULL)"),
@@ -168,6 +169,6 @@ pub async fn discover(state: &AppState, actor: &AuthContext, property: Uuid) -> 
         load_object(&state.db, "properties", &property.to_string()).await?;
     let rows=sqlx::query("SELECT min(occurred_at) AS first,max(occurred_at) AS last,count(*) AS rows,array_agg(DISTINCT policy_version) AS versions FROM ingest_events WHERE property_id=$1 AND expires_at>now()") .bind(property).fetch_one(&state.db).await?;
     Ok(
-        json!({"property_id":property,"datasets":["events","acquisition","identity_map","visits","touches"],"operators":["eq","ne","lt","le","gt","ge","is_null"],"aggregates":["count","sum","avg","min","max"],"profile":policy.policy.profile,"policy_version":policy.policy.version,"retained_rows":rows.get::<i64,_>("rows").to_string(),"first_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("first"),"last_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("last"),"history_complete":false,"limitations":["Observed bounds do not establish continuous coverage","Minimal/journey profiles cannot establish person-level longitudinal retention"]}),
+        json!({"property_id":property,"datasets":["events","acquisition","identity_map","visits","touches","activity"],"operators":["eq","ne","lt","le","gt","ge","is_null"],"aggregates":["count","sum","avg","min","max"],"profile":policy.policy.profile,"policy_version":policy.policy.version,"retained_rows":rows.get::<i64,_>("rows").to_string(),"first_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("first"),"last_observed":rows.get::<Option<chrono::DateTime<Utc>>,_>("last"),"history_complete":false,"limitations":["Observed bounds do not establish continuous coverage","Minimal/journey profiles cannot establish person-level longitudinal retention"]}),
     )
 }

@@ -222,6 +222,7 @@ pub async fn delete(state: &AppState, actor: &AuthContext, r: DeletionRequest) -
         sqlx::query("UPDATE ingest_audit SET details='{\"redacted_by_deletion\":true}'::jsonb WHERE property_id=$1 AND action='acquisition_correction' AND details->>'signup_event_id' IN (SELECT signup_event_id::text FROM ingest_acquisitions WHERE property_id=$1 AND subject_namespace=$2 AND subject_id=$3)")
             .bind(r.property_id).bind(ns).bind(id).execute(&mut *tx).await?;
         for table in [
+            "ingest_activity",
             "ingest_events",
             "ingest_acquisitions",
             "ingest_bindings",
@@ -296,6 +297,11 @@ pub async fn retain(state: &AppState, actor: &AuthContext, property_id: Uuid) ->
     let p = property(&mut tx, property_id).await?;
     let mut removed = 0u64;
     for (table, time, days) in [
+        (
+            "ingest_activity",
+            "received_at",
+            p.policy.identity_retention_days,
+        ),
         (
             "ingest_events",
             "received_at",
